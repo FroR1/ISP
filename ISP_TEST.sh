@@ -61,7 +61,7 @@ function check_config() {
             elif systemctl is-active --quiet nftables; then
                 echo "no"
             else
-                echo "error"
+                echo "not configured"
             fi
             ;;
         "time_zone")
@@ -70,7 +70,7 @@ function check_config() {
             elif timedatectl show | grep -q "TimeZone"; then
                 echo "no"
             else
-                echo "error"
+                echo "not configured"
             fi
             ;;
         *)
@@ -139,7 +139,7 @@ while true; do
             ;;
         2)
             apt-get update
-            apt-get install -y mc wget nftables
+            apt-get install -y mc wget nftables ipcalc
             for iface in $INTERFACE_HQ $INTERFACE_BR; do
                 mkdir -p /etc/net/ifaces/$iface
                 echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" > /etc/net/ifaces/$iface/options
@@ -188,7 +188,7 @@ while true; do
                 echo "nftables ---> $(check_config "nftables")"
                 echo "Time Zone ---> $(check_config "time_zone")"
                 echo "0. Back to menu"
-                readisert_type="text/bash" -p "Enter your choice: " sub_choice
+                read -p "Enter your choice: " sub_choice
                 if [ "$sub_choice" = "0" ]; then
                     break
                 else
