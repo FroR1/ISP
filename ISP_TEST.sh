@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# Function to check internet connection
-function check_internet() {
-    ping -c 4 google.com > /dev/null 2>&1
-    return $?
-}
-
 # Function to calculate network address from IP and mask
 function get_network() {
     local ip_with_mask=$1
@@ -104,6 +98,7 @@ function validate_ip() {
 
 # Function to display and edit data
 function edit_data() {
+    echo "Entering edit_data function..." # Отладочный вывод
     while true; do
         clear
         echo "Current Data:"
@@ -115,7 +110,7 @@ function edit_data() {
         echo "6. Set time zone: $TIME_ZONE"
         echo "7. Enter new data"
         echo "0. Back to main menu"
-        timeout 30 read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit, timeout 30s): " edit_choice || edit_choice=0
+        read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
             1)
                 read -p "Enter new HQ interface name: " INTERFACE_HQ
@@ -183,7 +178,7 @@ function edit_data() {
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -193,7 +188,7 @@ function edit_data() {
                 break
                 ;;
             *)
-                echo "Invalid choice or timeout. Returning to main menu."
+                echo "Invalid choice. Returning to main menu."
                 read -p "Press Enter to continue..."
                 ;;
         esac
@@ -273,14 +268,10 @@ while true; do
     read -p "Enter your choice: " choice
     case $choice in
         1)
+            echo "Calling edit_data..." # Отладочный вывод
             edit_data
             ;;
         2)
-            if ! check_internet; then
-                echo "No internet connection detected. Please check your network and try again."
-                read -p "Press Enter to continue..."
-                continue
-            fi
             if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ]; then
                 echo "IP addresses not set. Please set them in option 1 first."
                 read -p "Press Enter to continue..."
@@ -300,11 +291,6 @@ while true; do
             systemctl restart network
             ;;
         3)
-            if ! check_internet; then
-                echo "No internet connection detected. Please check your network and try again."
-                read -p "Press Enter to continue..."
-                continue
-            fi
             if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ]; then
                 echo "IP addresses not set. Please set them in option 1 first."
                 read -p "Press Enter to continue..."
@@ -332,7 +318,7 @@ while true; do
             ;;
         4)
             if [ -z "$HOSTNAME" ]; then
-                echo "Hostname not set. Please set it in option 1 first."
+                echo "Hostname not set. Please set them in option 1 first."
                 read -p "Press Enter to continue..."
                 continue
             fi
@@ -350,11 +336,11 @@ while true; do
                 echo "nftables ---> $(check_config "nftables")"
                 echo "Time Zone ---> $(check_config "time_zone")"
                 echo "0. Back to menu"
-                timeout 30 read -p "Enter your choice: " sub_choice || sub_choice=0
+                read -p "Enter your choice: " sub_choice
                 if [ "$sub_choice" = "0" ]; then
                     break
                 else
-                    echo "Invalid choice or timeout. Press 0 to go back."
+                    echo "Invalid choice. Press 0 to go back."
                     read -p "Press Enter to continue..."
                 fi
             done
@@ -370,7 +356,7 @@ while true; do
                 echo "5. Remove all configurations"
                 echo "6. Remove everything done by this script"
                 echo "0. Back to main menu"
-                timeout 30 read -p "Enter your choice: " remove_choice || remove_choice=0
+                read -p "Enter your choice: " remove_choice
                 case $remove_choice in
                     1)
                         remove_config "interfaces"
@@ -402,7 +388,7 @@ while true; do
                         break
                         ;;
                     *)
-                        echo "Invalid choice or timeout. Please try again."
+                        echo "Invalid choice. Please try again."
                         read -p "Press Enter to continue..."
                         ;;
                 esac
