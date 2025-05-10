@@ -5,22 +5,15 @@
 
 # Function to calculate network address from IP and mask
 function get_network() {
-    local ip=$1
-    local mask=$2
-    IFS='.' read -r i1 i2 i3 i4 <<< "$ip"
-    IFS='.' read -r m1 m2 m3 m4 <<< "$mask"
-    printf "%d.%d.%d.%d" \
-        $((i1 & m1)) \
-        $((i2 & m2)) \
-        $((i3 & m3)) \
-        $((i4 & m4))
+    local ip_with_mask=$1
+    ipcalc -n $ip_with_mask | grep Network | awk '{print $2}' | cut -d'/' -f1
 }
 
 # Function to display the main menu
 function display_menu() {
     clear
     echo "ISP Configuration Menu"
-    echo "1. Enter your data"
+    echo "1. Enter or edit your data"
     echo "2. Configure interfaces (except ens192)"
     echo "3. Configure nftables"
     echo "4. Set time zone"
@@ -65,9 +58,10 @@ function check_config() {
             fi
             ;;
         "time_zone")
-            if timedatectl show | grep -q "TimeZone=$TIME_ZONE"; then
+            local current_tz=$(timedatectl show | grep Timezone | cut -d'=' -f2)
+            if [ "$current_tz" = "$TIME_ZONE" ]; then
                 echo "yes"
-            elif timedatectl show | grep -q "TimeZone"; then
+            elif [ -n "$current_tz" ]; then
                 echo "no"
             else
                 echo "not configured"
@@ -79,19 +73,30 @@ function check_config() {
     esac
 }
 
+# Function to validate IP address format
+function validate_ip() {
+    local ip_with_mask=$1
+    if [[ $ip_with_mask =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Function to display and edit data
 function edit_data() {
     while true; do
         clear
-        echo "Entered Data:"
+        echo "Current Data:"
         echo "1. HQ interface name: $INTERFACE_HQ"
         echo "2. BR interface name: $INTERFACE_BR"
         echo "3. IP for HQ interface: $IP_HQ"
         echo "4. IP for BR interface: $IP_BR"
         echo "5. Hostname: $HOSTNAME"
         echo "6. Time zone: $TIME_ZONE"
+        echo "7. Enter new data"
         echo "0. Back to main menu"
-        read -p "Enter the number to edit (0 to exit): " edit_choice
+        read -p "Enter the number to edit or 7 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
             1)
                 read -p "Enter new HQ interface name: " INTERFACE_HQ
@@ -100,16 +105,56 @@ function edit_data() {
                 read -p "Enter new BR interface name: " INTERFACE_BR
                 ;;
             3)
-                read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                while true; do
+                    read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    if validate_ip "$IP_HQ"; then
+                        break
+                    else
+                        echo "Invalid IP format. Please use format like 172.16.4.1/28."
+                        read -p "Press Enter to try again..."
+                    fi
+                done
                 ;;
             4)
-                read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                while true; do
+                    read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    if validate_ip "$IP_BR"; then
+                        break
+                    else
+                        echo "Invalid IP format. Please use format like 172.16.5.1/28."
+                        read -p "Press Enter to try again..."
+                    fi
+                done
                 ;;
             5)
                 read -p "Enter new hostname: " HOSTNAME
                 ;;
             6)
                 read -p "Enter new time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
+                ;;
+            7)
+                read -p "Enter HQ interface name: " INTERFACE_HQ
+                read -p "Enter BR interface name: " INTERFACE_BR
+                while true; do
+                    read -p "Enter IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    if validate_ip "$IP_HQ"; then
+                        break
+                    else
+                        echo "Invalid IP format. Please use format like 172.16.4.1/28."
+                        read -p "Press Enter to try again..."
+                    fi
+                done
+                while true; do
+                    read -p "Enter IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    if validate_ip "$IP_BR"; then
+                        break
+                    else
+                        echo "Invalid IP format. Please use format like 172.16.5.1/28."
+                        read -p "Press Enter to try again..."
+                    fi
+                done
+                read -p "Enter hostname: " HOSTNAME
+                read -p "Enter time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
                 ;;
             0)
                 break
@@ -173,15 +218,14 @@ while true; do
     read -p "Enter your choice: " choice
     case $choice in
         1)
-            read -p "Enter HQ interface name: " INTERFACE_HQ
-            read -p "Enter BR interface name: " INTERFACE_BR
-            read -p "Enter IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
-            read -p "Enter IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
-            read -p "Enter hostname: " HOSTNAME
-            read -p "Enter time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
             edit_data
             ;;
         2)
+            if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ]; then
+                echo "IP addresses not set. Please set them in option 1 first."
+                read -p "Press Enter to continue..."
+                continue
+            fi
             apt-get update
             apt-get install -y mc wget nftables ipcalc
             for iface in $INTERFACE_HQ $INTERFACE_BR; do
@@ -196,6 +240,11 @@ while true; do
             systemctl restart network
             ;;
         3)
+            if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ]; then
+                echo "IP addresses not set. Please set them in option 1 first."
+                read -p "Press Enter to continue..."
+                continue
+            fi
             sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
             sysctl -p
             systemctl enable --now nftables
@@ -203,25 +252,44 @@ while true; do
             nft add table ip nat
             nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
             # Calculate network addresses from user input
-            HQ_IP=$(echo $IP_HQ | cut -d'/' -f1)
-            HQ_MASK=$(ipcalc -m $IP_HQ | cut -d'=' -f2)
-            BR_IP=$(echo $IP_BR | cut -d'/' -f1)
-            BR_MASK=$(ipcalc -m $IP_BR | cut -d'=' -f2)
             HQ_PREFIX=$(echo $IP_HQ | cut -d'/' -f2)
             BR_PREFIX=$(echo $IP_BR | cut -d'/' -f2)
-            HQ_NETWORK=$(get_network $HQ_IP $HQ_MASK)
-            BR_NETWORK=$(get_network $BR_IP $BR_MASK)
+            HQ_NETWORK=$(get_network $IP_HQ)
+            BR_NETWORK=$(get_network $IP_BR)
+            if [ -z "$HQ_NETWORK" ] || [ -z "$BR_NETWORK" ]; then
+                echo "Error calculating network addresses. Please check your IP inputs."
+                read -p "Press Enter to continue..."
+                continue
+            fi
             nft add rule ip nat postrouting ip saddr $HQ_NETWORK/$HQ_PREFIX oifname "ens192" counter masquerade
             nft add rule ip nat postrouting ip saddr $BR_NETWORK/$BR_PREFIX oifname "ens192" counter masquerade
             nft list ruleset > /etc/nftables/nftables.nft
             systemctl restart nftables
             ;;
         4)
-            timedatectl set-timezone $TIME_ZONE
+            if [ -z "$TIME_ZONE" ]; then
+                echo "Time zone not set. Please set it in option 1 first."
+                read -p "Press Enter to continue..."
+                continue
+            fi
+            timedatectl set-timezone "$TIME_ZONE"
+            if [ $? -eq 0 ]; then
+                echo "Time zone set to $TIME_ZONE."
+            else
+                echo "Error setting time zone. Please check the time zone value."
+            fi
+            read -p "Press Enter to continue..."
             ;;
         5)
+            if [ -z "$HOSTNAME" ]; then
+                echo "Hostname not set. Please set it in option 1 first."
+                read -p "Press Enter to continue..."
+                continue
+            fi
             echo $HOSTNAME > /etc/hostname
             hostnamectl set-hostname $HOSTNAME
+            echo "Hostname set to $HOSTNAME."
+            read -p "Press Enter to continue..."
             ;;
         6)
             while true; do
