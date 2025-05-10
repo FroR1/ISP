@@ -8,17 +8,21 @@ function get_network() {
     local ip_with_mask=$1
     local ip=$(echo $ip_with_mask | cut -d'/' -f1)
     local prefix=$(echo $ip_with_mask | cut -d'/' -f2)
-    # Convert prefix to a netmask (e.g., /28 to 255.255.255.240)
     local netmask=$(ipcalc -m $ip_with_mask | grep Netmask | awk '{print $2}')
-    # Split IP and netmask into octets
     IFS='.' read -r i1 i2 i3 i4 <<< "$ip"
     IFS='.' read -r m1 m2 m3 m4 <<< "$netmask"
-    # Calculate network address by applying the netmask
     local n1=$((i1 & m1))
     local n2=$((i2 & m2))
     local n3=$((i3 & m3))
     local n4=$((i4 & m4))
     echo "$n1.$n2.$n3.$n4"
+}
+
+# Function to check if timezone exists
+function check_timezone() {
+    local tz=$1
+    timedatectl list-timezones | grep -Fxq "$tz"
+    return $?
 }
 
 # Function to display the main menu
@@ -28,10 +32,10 @@ function display_menu() {
     echo "1. Enter or edit your data"
     echo "2. Configure interfaces (except ens192)"
     echo "3. Configure nftables"
-    echo "4. Set time zone"
-    echo "5. Set hostname"
-    echo "6. Check configuration status"
-    echo "7. Remove configurations"
+    echo "4. Set hostname"
+    echo "5. Check configuration status"
+    echo "6. Remove configurations"
+    echo "7. Show help"
     echo "0. Exit"
 }
 
@@ -88,7 +92,7 @@ function check_config() {
 # Function to validate IP address format
 function validate_ip() {
     local ip_with_mask=$1
-    if [[ $ip_with_mask =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+    if [[ $ip_with_mask =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-3][0-2]|[0-9])$ ]]; then
         return 0
     else
         return 1
@@ -105,9 +109,10 @@ function edit_data() {
         echo "3. IP for HQ interface: $IP_HQ"
         echo "4. IP for BR interface: $IP_BR"
         echo "5. Hostname: $HOSTNAME"
-        echo "6. Enter new data"
+        echo "6. Set time zone: $TIME_ZONE"
+        echo "7. Enter new data"
         echo "0. Back to main menu"
-        read -p "Enter the number to edit or 6 to enter new data (0 to exit): " edit_choice
+        timeout 30 read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit, timeout 30s): " edit_choice || edit_choice=0
         case $edit_choice in
             1)
                 read -p "Enter new HQ interface name: " INTERFACE_HQ
@@ -121,7 +126,7 @@ function edit_data() {
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28."
+                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -132,7 +137,7 @@ function edit_data() {
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28."
+                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -141,6 +146,24 @@ function edit_data() {
                 read -p "Enter new hostname: " HOSTNAME
                 ;;
             6)
+                while true; do
+                    read -p "Enter new time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
+                    if check_timezone "$TIME_ZONE"; then
+                        timedatectl set-timezone "$TIME_ZONE"
+                        if [ $? -eq 0 ]; then
+                            echo "Time zone set to $TIME_ZONE."
+                            break
+                        else
+                            echo "Error setting time zone. Please try again."
+                        fi
+                    else
+                        echo "Invalid or not installed time zone: $TIME_ZONE."
+                        echo "Use 'timedatectl list-timezones' to see valid options."
+                    fi
+                    read -p "Press Enter to try again..."
+                done
+                ;;
+            7)
                 read -p "Enter HQ interface name: " INTERFACE_HQ
                 read -p "Enter BR interface name: " INTERFACE_BR
                 while true; do
@@ -148,7 +171,7 @@ function edit_data() {
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28."
+                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -157,7 +180,7 @@ function edit_data() {
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28."
+                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -167,33 +190,36 @@ function edit_data() {
                 break
                 ;;
             *)
-                echo "Invalid choice. Please try again."
+                echo "Invalid choice or timeout. Returning to main menu."
                 read -p "Press Enter to continue..."
                 ;;
         esac
     done
 }
 
-# Function to remove configurations
+# Function to remove configurations with backup
 function remove_config() {
     local config=$1
     case $config in
         "interfaces")
+            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
+            cp -r /etc/net/ifaces/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
             rm -rf /etc/net/ifaces/$INTERFACE_HQ
             rm -rf /etc/net/ifaces/$INTERFACE_BR
-            echo "Interface configurations removed."
+            echo "Interface configurations removed. Backup created in /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/."
             ;;
         "nftables")
+            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
+            cp -r /etc/nftables/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
             nft flush ruleset
-            # Remove nftables config and any backups
             rm -f /etc/nftables/nftables.nft
             rm -f /etc/nftables/nftables.nft.bak
-            rm -f /etc/nftables/nftables.nft.*  # Remove any other backups
+            rm -f /etc/nftables/nftables.nft.*
             systemctl stop nftables
-            echo "nftables configurations and backups removed."
+            echo "nftables configurations and backups removed. Backup created in /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/."
             ;;
         "time_zone")
-            timedatectl set-timezone UTC  # Reset to UTC
+            timedatectl set-timezone UTC
             echo "Time zone reset to UTC."
             ;;
         "hostname")
@@ -212,6 +238,22 @@ function remove_config() {
             echo "Invalid option."
             ;;
     esac
+}
+
+# Function to display help
+function show_help() {
+    clear
+    echo "ISP Configuration Script Help"
+    echo "1. Enter or edit your data: Set or modify interface names, IPs, hostname, and time zone."
+    echo "   - IPs should be in format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+    echo "2. Configure interfaces: Sets up interfaces (except ens192) with static IPs."
+    echo "3. Configure nftables: Sets up NAT with masquerade for specified IPs."
+    echo "4. Set hostname: Apply the specified hostname."
+    echo "5. Check configuration status: Shows current status of all settings."
+    echo "6. Remove configurations: Deletes configurations with backup."
+    echo "7. Show help: Displays this help message."
+    echo "0. Exit: Exits the script."
+    read -p "Press Enter to return to menu..."
 }
 
 # Default values
@@ -261,7 +303,6 @@ while true; do
             nft flush ruleset
             nft add table ip nat
             nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
-            # Calculate network addresses from user input
             HQ_PREFIX=$(echo $IP_HQ | cut -d'/' -f2)
             BR_PREFIX=$(echo $IP_BR | cut -d'/' -f2)
             HQ_NETWORK=$(get_network $IP_HQ)
@@ -277,20 +318,6 @@ while true; do
             systemctl restart nftables
             ;;
         4)
-            if [ -z "$TIME_ZONE" ]; then
-                echo "Time zone not set. Please set it in option 1 first."
-                read -p "Press Enter to continue..."
-                continue
-            fi
-            timedatectl set-timezone "$TIME_ZONE"
-            if [ $? -eq 0 ]; then
-                echo "Time zone set to $TIME_ZONE."
-            else
-                echo "Error setting time zone. Please check the time zone value."
-            fi
-            read -p "Press Enter to continue..."
-            ;;
-        5)
             if [ -z "$HOSTNAME" ]; then
                 echo "Hostname not set. Please set it in option 1 first."
                 read -p "Press Enter to continue..."
@@ -301,7 +328,7 @@ while true; do
             echo "Hostname set to $HOSTNAME."
             read -p "Press Enter to continue..."
             ;;
-        6)
+        5)
             while true; do
                 clear
                 echo "Configuration Status:"
@@ -310,16 +337,16 @@ while true; do
                 echo "nftables ---> $(check_config "nftables")"
                 echo "Time Zone ---> $(check_config "time_zone")"
                 echo "0. Back to menu"
-                read -p "Enter your choice: " sub_choice
+                timeout 30 read -p "Enter your choice: " sub_choice || sub_choice=0
                 if [ "$sub_choice" = "0" ]; then
                     break
                 else
-                    echo "Invalid choice. Press 0 to go back."
+                    echo "Invalid choice or timeout. Press 0 to go back."
                     read -p "Press Enter to continue..."
                 fi
             done
             ;;
-        7)
+        6)
             while true; do
                 clear
                 echo "Remove Configurations Menu"
@@ -330,7 +357,7 @@ while true; do
                 echo "5. Remove all configurations"
                 echo "6. Remove everything done by this script"
                 echo "0. Back to main menu"
-                read -p "Enter your choice: " remove_choice
+                timeout 30 read -p "Enter your choice: " remove_choice || remove_choice=0
                 case $remove_choice in
                     1)
                         remove_config "interfaces"
@@ -349,7 +376,6 @@ while true; do
                         ;;
                     6)
                         remove_config "all"
-                        # Additional cleanup
                         rm -f /etc/nftables/nftables.nft
                         rm -f /etc/nftables/nftables.nft.bak
                         rm -f /etc/nftables/nftables.nft.*
@@ -363,11 +389,14 @@ while true; do
                         break
                         ;;
                     *)
-                        echo "Invalid choice. Please try again."
+                        echo "Invalid choice or timeout. Please try again."
                         read -p "Press Enter to continue..."
                         ;;
                 esac
             done
+            ;;
+        7)
+            show_help
             ;;
         0)
             clear
