@@ -79,6 +79,49 @@ function check_config() {
     esac
 }
 
+# Function to display and edit data
+function edit_data() {
+    while true; do
+        clear
+        echo "Entered Data:"
+        echo "1. HQ interface name: $INTERFACE_HQ"
+        echo "2. BR interface name: $INTERFACE_BR"
+        echo "3. IP for HQ interface: $IP_HQ"
+        echo "4. IP for BR interface: $IP_BR"
+        echo "5. Hostname: $HOSTNAME"
+        echo "6. Time zone: $TIME_ZONE"
+        echo "0. Back to main menu"
+        read -p "Enter the number to edit (0 to exit): " edit_choice
+        case $edit_choice in
+            1)
+                read -p "Enter new HQ interface name: " INTERFACE_HQ
+                ;;
+            2)
+                read -p "Enter new BR interface name: " INTERFACE_BR
+                ;;
+            3)
+                read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                ;;
+            4)
+                read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                ;;
+            5)
+                read -p "Enter new hostname: " HOSTNAME
+                ;;
+            6)
+                read -p "Enter new time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
+                ;;
+            0)
+                break
+                ;;
+            *)
+                echo "Invalid choice. Please try again."
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
 # Function to remove configurations
 function remove_config() {
     local config=$1
@@ -136,6 +179,7 @@ while true; do
             read -p "Enter IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
             read -p "Enter hostname: " HOSTNAME
             read -p "Enter time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
+            edit_data
             ;;
         2)
             apt-get update
