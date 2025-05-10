@@ -6,7 +6,19 @@
 # Function to calculate network address from IP and mask
 function get_network() {
     local ip_with_mask=$1
-    ipcalc -n $ip_with_mask | grep Network | awk '{print $2}' | cut -d'/' -f1
+    local ip=$(echo $ip_with_mask | cut -d'/' -f1)
+    local prefix=$(echo $ip_with_mask | cut -d'/' -f2)
+    # Convert prefix to a netmask (e.g., /28 to 255.255.255.240)
+    local netmask=$(ipcalc -m $ip_with_mask | grep Netmask | awk '{print $2}')
+    # Split IP and netmask into octets
+    IFS='.' read -r i1 i2 i3 i4 <<< "$ip"
+    IFS='.' read -r m1 m2 m3 m4 <<< "$netmask"
+    # Calculate network address by applying the netmask
+    local n1=$((i1 & m1))
+    local n2=$((i2 & m2))
+    local n3=$((i3 & m3))
+    local n4=$((i4 & m4))
+    echo "$n1.$n2.$n3.$n4"
 }
 
 # Function to display the main menu
@@ -93,10 +105,9 @@ function edit_data() {
         echo "3. IP for HQ interface: $IP_HQ"
         echo "4. IP for BR interface: $IP_BR"
         echo "5. Hostname: $HOSTNAME"
-        echo "6. Time zone: $TIME_ZONE"
-        echo "7. Enter new data"
+        echo "6. Enter new data"
         echo "0. Back to main menu"
-        read -p "Enter the number to edit or 7 to enter new data (0 to exit): " edit_choice
+        read -p "Enter the number to edit or 6 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
             1)
                 read -p "Enter new HQ interface name: " INTERFACE_HQ
@@ -130,9 +141,6 @@ function edit_data() {
                 read -p "Enter new hostname: " HOSTNAME
                 ;;
             6)
-                read -p "Enter new time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
-                ;;
-            7)
                 read -p "Enter HQ interface name: " INTERFACE_HQ
                 read -p "Enter BR interface name: " INTERFACE_BR
                 while true; do
@@ -154,7 +162,6 @@ function edit_data() {
                     fi
                 done
                 read -p "Enter hostname: " HOSTNAME
-                read -p "Enter time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
                 ;;
             0)
                 break
@@ -178,9 +185,12 @@ function remove_config() {
             ;;
         "nftables")
             nft flush ruleset
+            # Remove nftables config and any backups
             rm -f /etc/nftables/nftables.nft
+            rm -f /etc/nftables/nftables.nft.bak
+            rm -f /etc/nftables/nftables.nft.*  # Remove any other backups
             systemctl stop nftables
-            echo "nftables configurations removed."
+            echo "nftables configurations and backups removed."
             ;;
         "time_zone")
             timedatectl set-timezone UTC  # Reset to UTC
@@ -341,6 +351,8 @@ while true; do
                         remove_config "all"
                         # Additional cleanup
                         rm -f /etc/nftables/nftables.nft
+                        rm -f /etc/nftables/nftables.nft.bak
+                        rm -f /etc/nftables/nftables.nft.*
                         systemctl stop nftables
                         systemctl disable nftables
                         sed -i 's/net.ipv4.ip_forward=1/#net.ipv4.ip_forward=1/' /etc/sysctl.conf
