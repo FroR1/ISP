@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Note: Before running this script, ensure that the ens192 interface is manually configured
-# to have internet access for downloading this script.
+# Function to check internet connection
+function check_internet() {
+    ping -c 4 google.com > /dev/null 2>&1
+    return $?
+}
 
 # Function to calculate network address from IP and mask
 function get_network() {
@@ -273,6 +276,11 @@ while true; do
             edit_data
             ;;
         2)
+            if ! check_internet; then
+                echo "No internet connection detected. Please check your network and try again."
+                read -p "Press Enter to continue..."
+                continue
+            fi
             if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ]; then
                 echo "IP addresses not set. Please set them in option 1 first."
                 read -p "Press Enter to continue..."
@@ -292,6 +300,11 @@ while true; do
             systemctl restart network
             ;;
         3)
+            if ! check_internet; then
+                echo "No internet connection detected. Please check your network and try again."
+                read -p "Press Enter to continue..."
+                continue
+            fi
             if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ]; then
                 echo "IP addresses not set. Please set them in option 1 first."
                 read -p "Press Enter to continue..."
