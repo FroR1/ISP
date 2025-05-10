@@ -213,8 +213,8 @@ configure_nftables() {
     }
 
     # Explicitly remove the old nftables configuration file
-    if [ -f /etc/nftables.nft ]; then
-        rm -f /etc/nftables.nft
+    if [ -f /etc/nftables/nftables.nft ]; then
+        rm -f /etc/nftables/nftables.nft
         log "Removed old nftables configuration file"
     fi
 
@@ -243,7 +243,7 @@ EOF
     log "Created new nftables configuration file"
 
     # Apply nftables rules
-    nft -f /etc/nftables.nft || {
+    nft -f /etc/nftables/nftables.nft || {
         log "Error: Failed to apply nftables rules"
         echo "Error: Failed to apply nftables rules"
         return 1
