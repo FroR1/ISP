@@ -89,7 +89,7 @@ function check_config() {
 # Function to validate IP address format
 function validate_ip() {
     local ip_with_mask=$1
-    if [[ $ip_with_mask =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-3][0-2]|[0-9])$ ]]; then
+    if [[ $ip_with_mask =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[12][0-9]|3[0-2])$ ]]; then
         return 0
     else
         return 1
@@ -178,7 +178,7 @@ function edit_data() {
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -318,7 +318,7 @@ while true; do
             ;;
         4)
             if [ -z "$HOSTNAME" ]; then
-                echo "Hostname not set. Please set them in option 1 first."
+                echo "Hostname not set. Please set it in option 1 first."
                 read -p "Press Enter to continue..."
                 continue
             fi
