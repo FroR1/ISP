@@ -22,10 +22,25 @@ function check_timezone() {
     return $?
 }
 
-# Function to display the main menu
+# Function to display animated menu
 function display_menu() {
+    # Install figlet if not present (run once manually: sudo apt-get install figlet)
+    if ! command -v figlet &> /dev/null; then
+        echo "Please install figlet (sudo apt-get install figlet) for animation."
+        return 1
+    fi
+
+    # Animation with blinking title
+    for i in {1..3}; do
+        clear
+        figlet -c "ISP Config"
+        sleep 0.5
+        clear
+        sleep 0.5
+    done
     clear
-    echo "ISP Configuration Menu"
+    figlet -c "ISP Config"
+    echo "---------------------"
     echo "1. Enter or edit your data"
     echo "2. Configure interfaces (except ens192)"
     echo "3. Configure nftables"
@@ -109,6 +124,7 @@ function edit_data() {
         echo "5. Hostname: $HOSTNAME"
         echo "6. Set time zone: $TIME_ZONE"
         echo "7. Enter new data"
+        echo "8. Show network map"
         echo "0. Back to main menu"
         read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
@@ -183,6 +199,23 @@ function edit_data() {
                     fi
                 done
                 read -p "Enter hostname: " HOSTNAME
+                ;;
+            8)
+                # Display network map
+                clear
+                echo "=== Network Map ==="
+                echo "  +----------------+"
+                echo "  |   Internet     |"
+                echo "  +----------------+"
+                echo "          |"
+                echo "          | (ens192)"
+                echo "          |"
+                echo "  +----------------+    +----------------+"
+                echo "  | $INTERFACE_HQ  |----| $INTERFACE_BR  |"
+                echo "  | IP: $IP_HQ    |    | IP: $IP_BR    |"
+                echo "  +----------------+    +----------------+"
+                echo "Press Enter to return..."
+                read
                 ;;
             0)
                 break
