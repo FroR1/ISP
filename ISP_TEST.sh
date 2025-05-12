@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Function to log errors and exit
+# Function to log errors and exit Harvest Moon
 function log_error() {
     echo "Error: $1" >&2
     exit 1
@@ -263,7 +263,6 @@ function remove_config() {
             local backup_dir="/etc/isp_backup/$(date +%Y%m%d_%H%M%S)"
             mkdir -p "$backup_dir" || log_error "Failed to create backup directory."
             cp -r /etc/nftables/* "$backup_dir/" 2>/dev/null
-            nft flush ruleset || log_error "Failed to flush nftables ruleset."
             rm -f /etc/nftables/nftables.nft /etc/nftables/nftables.nft.bak /etc/nftables/nftables.nft.*
             systemctl stop nftables || log_error "Failed to stop nftables service."
             echo "nftables configurations removed. Backup created in $backup_dir/."
@@ -376,14 +375,29 @@ while true; do
             read -p "Proceed with nftables configuration? (y/n): " confirm
             if [[ "$confirm" =~ ^[Yy]$ ]]; then
                 systemctl enable --now nftables || log_error "Failed to enable or start nftables."
+                # Create the directory if it doesn't exist
+                mkdir -p /etc/nftables || log_error "Failed to create /etc/nftables directory."
+                # Flush existing rules
                 nft flush ruleset || log_error "Failed to flush nftables ruleset."
-                nft add table ip nat || log_error "Failed to add nftables table."
-                nft add chain ip nat postrouting "{ type nat hook postrouting priority 0; }" || log_error "Failed to add nftables chain."
-                nft add rule ip nat postrouting ip saddr "$HQ_NETWORK" oifname "$INTERFACE_OUT" counter masquerade || log_error "Failed to add HQ masquerade rule."
-                nft add rule ip nat postrouting ip saddr "$BR_NETWORK" oifname "$INTERFACE_OUT" counter masquerade || log_error "Failed to add BR masquerade rule."
-                nft list ruleset > /etc/nftables/nftables.nft || log_error "Failed to save nftables ruleset."
+                # Write the nftables configuration to /etc/nftables/nftables.nft
+                cat > /etc/nftables/nftables.nft << EOF || log_error "Failed to write to /etc/nftables/nftables.nft."
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority 0; policy accept;
+        ip saddr $HQ_NETWORK oifname "$INTERFACE_OUT" counter masquerade
+        ip saddr $BR_NETWORK oifname "$INTERFACE_OUT" counter masquerade
+    }
+}
+EOF
+                # Set proper permissions for the file
+                chmod 644 /etc/nftables/nftables.nft || log_error "Failed to set permissions on /etc/nftables/nftables.nft."
+                # Reload the nftables service to apply the new configuration
                 systemctl restart nftables || log_error "Failed to restart nftables."
-                echo "nftables configured."
+                echo "nftables configured via /etc/nftables/nftables.nft."
             else
                 echo "nftables configuration skipped."
             fi
