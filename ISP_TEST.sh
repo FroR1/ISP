@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # ISP Configuration Script
-# This script configures network interfaces, nftables, hostname, and timezone for an ISP setup.
-# Target distribution: ALT Linux (uses /etc/net/ifaces for network configuration).
+# This script handles data input and basic configuration tasks.
 # Logs actions to /var/log/isp_config.log.
 
 # Ensure the script is run as root
@@ -23,7 +22,7 @@ log_message() {
 
 # Initialize log file
 if [ ! -f "$LOG_FILE" ]; then
-    touch "$LOG_FILE" 2>/dev/null || { echo "Error: Cannot create log file at $LOG_FILE. Please run with sudo and ensure write permissions." >&2; exit 1; }
+    touch "$LOG_FILE" 2>/dev/null || { echo "Error: Cannot create log file at $LOG_FILE." >&2; exit 1; }
 fi
 chmod 644 "$LOG_FILE" 2>/dev/null || { echo "Error: Cannot set permissions on log file." >&2; exit 1; }
 
@@ -36,7 +35,7 @@ check_and_install_command() {
     if ! command -v "$cmd" &>/dev/null; then
         log_message "Error: Required command '$cmd' not found. Attempting to install package '$pkg'..."
         if ! apt-get update >> "$LOG_FILE" 2>&1; then
-            log_message "Warning: Failed to update package lists. Please ensure repositories are configured (e.g., edit /etc/apt/sources.list)."
+            log_message "Warning: Failed to update package lists. Please ensure repositories are configured."
             log_message "Manual installation required: sudo apt-get install $pkg"
             read -p "Press Enter after installing $pkg manually or exit (Ctrl+C)..."
         else
@@ -45,7 +44,6 @@ check_and_install_command() {
                 read -p "Press Enter after installing $pkg manually or exit (Ctrl+C)..."
             else
                 log_message "Package '$pkg' installed successfully."
-                # Refresh PATH to ensure new command is found
                 export PATH=$PATH:/usr/sbin:/usr/local/sbin
                 if ! command -v "$cmd" &>/dev/null; then
                     log_message "Error: Command '$cmd' still not found after installation. Check PATH or manual installation."
@@ -74,6 +72,35 @@ if ! dpkg -l | grep -q "^ii  tzdata "; then
         log_message "Package 'tzdata' installed successfully."
     fi
 fi
+
+# Function to validate IP address format
+validate_ip() {
+    local ip_with_mask=$1
+    if [[ $ip_with_mask =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+        local ip=$(echo "$ip_with_mask" | cut -d'/' -f1)
+        local prefix=$(echo "$ip_with_mask" | cut -d'/' -f2)
+        if [[ $ip =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]] && [ "$prefix" -ge 0 ] && [ "$prefix" -le 32 ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to check if timezone exists
+check_timezone() {
+    local tz=$1
+    if ! timedatectl list-timezones > /tmp/tzlist.log 2>>"$LOG_FILE"; then
+        log_message "Error: Failed to list timezones with timedatectl."
+        return 1
+    fi
+    if grep -Fxq "$tz" /tmp/tzlist.log; then
+        rm -f /tmp/tzlist.log
+        return 0
+    else
+        rm -f /tmp/tzlist.log
+        return 1
+    fi
+}
 
 # Function to calculate network address from IP and mask
 get_network() {
@@ -106,35 +133,6 @@ get_network() {
     echo "${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
 }
 
-# Function to validate IP address format
-validate_ip() {
-    local ip_with_mask=$1
-    if [[ $ip_with_mask =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
-        local ip=$(echo "$ip_with_mask" | cut -d'/' -f1)
-        local prefix=$(echo "$ip_with_mask" | cut -d'/' -f2)
-        if [[ $ip =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]] && [ "$prefix" -ge 0 ] && [ "$prefix" -le 32 ]; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# Function to check if timezone exists
-check_timezone() {
-    local tz=$1
-    if ! timedatectl list-timezones > /tmp/tzlist.log 2>>"$LOG_FILE"; then
-        log_message "Error: Failed to list timezones with timedatectl."
-        return 1
-    fi
-    if grep -Fxq "$tz" /tmp/tzlist.log; then
-        rm -f /tmp/tzlist.log
-        return 0
-    else
-        rm -f /tmp/tzlist.log
-        return 1
-    fi
-}
-
 # Default values
 INTERFACE_HQ="ens224"
 INTERFACE_BR="ens256"
@@ -155,9 +153,6 @@ display_menu() {
     echo "3. Configure nftables (NAT)"
     echo "4. Set hostname"
     echo "5. Set time zone to Asia/Novosibirsk"
-    echo "6. Check configuration status"
-    echo "7. Remove configurations"
-    echo "8. Show help"
     echo "0. Exit"
 }
 
@@ -386,112 +381,6 @@ set_timezone_novosibirsk() {
     read -p "Press Enter to continue..."
 }
 
-# Function to check configuration status
-check_config() {
-    local config=$1
-    case $config in
-        "hostname")
-            if [ -f /etc/hostname ] && [ "$(cat /etc/hostname)" = "$HOSTNAME" ]; then
-                echo "yes"
-            elif [ -f /etc/hostname ]; then
-                echo "no"
-            else
-                echo "error"
-            fi
-            ;;
-        "interfaces")
-            if [ -d /etc/net/ifaces/$INTERFACE_HQ ] && [ -d /etc/net/ifaces/$INTERFACE_BR ]; then
-                if grep -q "BOOTPROTO=static" /etc/net/ifaces/$INTERFACE_HQ/options && \
-                   grep -q "BOOTPROTO=static" /etc/net/ifaces/$INTERFACE_BR/options; then
-                    echo "yes"
-                else
-                    echo "no"
-                fi
-            else
-                echo "error"
-            fi
-            ;;
-        "nftables")
-            if systemctl is-active --quiet nftables && nft list ruleset | grep -q "masquerade"; then
-                echo "yes"
-            elif systemctl is-active --quiet nftables; then
-                echo "no"
-            else
-                echo "not configured"
-            fi
-            ;;
-        "time_zone")
-            local current_tz=$(timedatectl show | grep Timezone | cut -d'=' -f2)
-            if [ "$current_tz" = "$TIME_ZONE" ]; then
-                echo "yes"
-            elif [ -n "$current_tz" ]; then
-                echo "no"
-            else
-                echo "not configured"
-            fi
-            ;;
-        *)
-            echo "error"
-            ;;
-    esac
-}
-
-# Function to remove configurations with backup
-remove_config() {
-    local config=$1
-    local backup_dir="/etc/isp_backup/$(date +%Y%m%d_%H%M%S)"
-    case $config in
-        "interfaces")
-            mkdir -p "$backup_dir" >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to create backup directory."; return 1; }
-            cp -r /etc/net/ifaces/* "$backup_dir/" 2>>"$LOG_FILE"
-            rm -rf "/etc/net/ifaces/$INTERFACE_HQ" "/etc/net/ifaces/$INTERFACE_BR" 2>>"$LOG_FILE"
-            log_message "Interface configurations removed. Backup created in $backup_dir."
-            ;;
-        "nftables")
-            mkdir -p "$backup_dir" >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to create backup directory."; return 1; }
-            cp -r /etc/nftables/* "$backup_dir/" 2>>"$LOG_FILE"
-            rm -f /etc/nftables/nftables.nft /etc/nftables/nftables.nft.bak /etc/nftables/nftables.nft.* 2>>"$LOG_FILE"
-            systemctl stop nftables >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to stop nftables service."; return 1; }
-            log_message "nftables configurations removed. Backup created in $backup_dir."
-            ;;
-        "time_zone")
-            timedatectl set-timezone UTC >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to set timezone to UTC."; return 1; }
-            TIME_ZONE="UTC"
-            log_message "Time zone reset to UTC."
-            ;;
-        "hostname")
-            echo "localhost" > /etc/hostname 2>>"$LOG_FILE" || { log_message "Error: Failed to write to /etc/hostname."; return 1; }
-            hostnamectl set-hostname localhost >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to set hostname to localhost."; return 1; }
-            HOSTNAME="localhost"
-            log_message "Hostname reset to localhost."
-            ;;
-        "all")
-            remove_config "interfaces"
-            remove_config "nftables"
-            remove_config "time_zone"
-            remove_config "hostname"
-            log_message "All configurations removed."
-            ;;
-        *) log_message "Invalid option."; return 1 ;;
-    esac
-}
-
-# Function to display help
-show_help() {
-    clear
-    echo "ISP Configuration Script Help"
-    echo "1. Enter or edit data: Modify interface names, IPs, hostname, and time zone."
-    echo "2. Configure network interfaces: Set up interfaces with static IPs (ALT Linux specific)."
-    echo "3. Configure nftables (NAT): Set up NAT with masquerade for specified networks."
-    echo "4. Set hostname: Apply the specified hostname."
-    echo "5. Set time zone to Asia/Novosibirsk: Set the system time zone."
-    echo "6. Check configuration status: Display the status of all settings."
-    echo "7. Remove configurations: Delete configurations with backup."
-    echo "8. Show help: Display this help message."
-    echo "0. Exit: Exit the script."
-    read -p "Press Enter to return to menu..."
-}
-
 # Main loop
 while true; do
     display_menu
@@ -502,44 +391,6 @@ while true; do
         3) configure_nftables ;;
         4) set_hostname ;;
         5) set_timezone_novosibirsk ;;
-        6)
-            while true; do
-                clear
-                echo "Configuration Status:"
-                echo "Hostname ---> $(check_config "hostname")"
-                echo "Interfaces ---> $(check_config "interfaces")"
-                echo "nftables ---> $(check_config "nftables")"
-                echo "Time Zone ---> $(check_config "time_zone")"
-                echo "0. Back to menu"
-                read -p "Enter your choice: " sub_choice
-                [ "$sub_choice" = "0" ] && break
-                echo "Invalid choice. Press 0 to go back."
-                read -p "Press Enter to continue..."
-            done
-            ;;
-        7)
-            while true; do
-                clear
-                echo "Remove Configurations Menu"
-                echo "1. Remove interface configurations"
-                echo "2. Remove nftables configurations"
-                echo "3. Remove time zone configuration"
-                echo "4. Remove hostname configuration"
-                echo "5. Remove all configurations"
-                echo "0. Back to main menu"
-                read -p "Enter your choice: " remove_choice
-                case $remove_choice in
-                    1) remove_config "interfaces"; read -p "Press Enter to continue..." ;;
-                    2) remove_config "nftables"; read -p "Press Enter to continue..." ;;
-                    3) remove_config "time_zone"; read -p "Press Enter to continue..." ;;
-                    4) remove_config "hostname"; read -p "Press Enter to continue..." ;;
-                    5) remove_config "all"; read -p "Press Enter to continue..." ;;
-                    0) break ;;
-                    *) echo "Invalid choice."; read -p "Press Enter to continue..." ;;
-                esac
-            done
-            ;;
-        8) show_help ;;
         0) log_message "Exiting ISP configuration script."; clear; exit 0 ;;
         *) echo "Invalid choice."; read -p "Press Enter to continue..." ;;
     esac
