@@ -18,14 +18,33 @@ function get_network() {
 # Function to check if timezone exists
 function check_timezone() {
     local tz=$1
+    if ! command -v timedatectl &> /dev/null; then
+        echo "Error: timedatectl not found. Please install systemd (sudo apt-get install systemd)."
+        return 1
+    fi
     timedatectl list-timezones | grep -Fxq "$tz"
     return $?
 }
 
-# Function to display the main menu
+# Function to display animated menu
 function display_menu() {
+    # Install figlet if not present (run once manually: sudo apt-get install figlet)
+    if ! command -v figlet &> /dev/null; then
+        echo "Please install figlet (sudo apt-get install figlet) for animation."
+        return 1
+    fi
+
+    # Animation with blinking title
+    for i in {1..3}; do
+        clear
+        figlet -c "ISP Config"
+        sleep 0.5
+        clear
+        sleep 0.5
+    done
     clear
-    echo "ISP Configuration Menu"
+    figlet -c "ISP Config"
+    echo "---------------------"
     echo "1. Enter or edit your data"
     echo "2. Configure interfaces (except ens192)"
     echo "3. Configure nftables"
@@ -109,6 +128,7 @@ function edit_data() {
         echo "5. Hostname: $HOSTNAME"
         echo "6. Set time zone: $TIME_ZONE"
         echo "7. Enter new data"
+        echo "8. Show network map"
         echo "0. Back to main menu"
         read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
@@ -120,22 +140,22 @@ function edit_data() {
                 ;;
             3)
                 while true; do
-                    read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    read -p "Enter new IP for HQ interface (e.g., 1.2.3.4/28): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 1.2.3.4/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 ;;
             4)
                 while true; do
-                    read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    read -p "Enter new IP for BR interface (e.g., 1.2.3.5/28): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 1.2.3.5/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -165,24 +185,41 @@ function edit_data() {
                 read -p "Enter HQ interface name: " INTERFACE_HQ
                 read -p "Enter BR interface name: " INTERFACE_BR
                 while true; do
-                    read -p "Enter IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    read -p "Enter IP for HQ interface (e.g., 1.2.3.4/28): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 1.2.3.4/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 while true; do
-                    read -p "Enter IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    read -p "Enter IP for BR interface (e.g., 1.2.3.5/28): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 1.2.3.5/28 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 read -p "Enter hostname: " HOSTNAME
+                ;;
+            8)
+                # Display network map
+                clear
+                echo "=== Network Map ==="
+                echo "  +----------------+"
+                echo "  |   Internet     |"
+                echo "  +----------------+"
+                echo "          |"
+                echo "          | (ens192)"
+                echo "          |"
+                echo "  +----------------+    +----------------+"
+                echo "  | $INTERFACE_HQ  |----| $INTERFACE_BR  |"
+                echo "  | IP: $IP_HQ    |    | IP: $IP_BR    |"
+                echo "  +----------------+    +----------------+"
+                echo "Press Enter to return..."
+                read
                 ;;
             0)
                 break
@@ -243,7 +280,7 @@ function show_help() {
     clear
     echo "ISP Configuration Script Help"
     echo "1. Enter or edit your data: Set or modify interface names, IPs, hostname, and time zone."
-    echo "   - IPs should be in format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+    echo "   - IPs should be in format like 1.2.3.4/28 (octets 0-255, prefix 0-32)."
     echo "2. Configure interfaces: Sets up interfaces (except ens192) with static IPs."
     echo "3. Configure nftables: Sets up NAT with masquerade for specified IPs."
     echo "4. Set hostname: Apply the specified hostname."
@@ -257,8 +294,8 @@ function show_help() {
 # Default values
 INTERFACE_HQ="ens224"
 INTERFACE_BR="ens256"
-IP_HQ="172.16.4.1/28"
-IP_BR="172.16.5.1/28"
+IP_HQ="1.2.3.4/28"
+IP_BR="1.2.3.5/28"
 HOSTNAME="isp"
 TIME_ZONE="Asia/Novosibirsk"
 
@@ -311,6 +348,9 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
+            # Debug output to verify network addresses
+            echo "HQ Network: $HQ_NETWORK/$HQ_PREFIX"
+            echo "BR Network: $BR_NETWORK/$BR_PREFIX"
             nft add rule ip nat postrouting ip saddr $HQ_NETWORK/$HQ_PREFIX oifname "ens192" counter masquerade
             nft add rule ip nat postrouting ip saddr $BR_NETWORK/$BR_PREFIX oifname "ens192" counter masquerade
             nft list ruleset > /etc/nftables/nftables.nft
