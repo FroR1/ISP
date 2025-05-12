@@ -381,10 +381,6 @@ while true; do
                 echo "IPv4 forwarding enabled successfully."
             fi
 
-            systemctl enable --now nftables
-            nft flush ruleset
-            nft add table ip nat
-            nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
             # Get the network addresses with correct masks
             HQ_NETWORK=$(get_network "$IP_HQ")
             BR_NETWORK=$(get_network "$IP_BR")
@@ -393,12 +389,26 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            # Add rules using the full network address with mask
-            nft add rule ip nat postrouting ip saddr "$HQ_NETWORK" oifname "ens192" counter masquerade
-            nft add rule ip nat postrouting ip saddr "$BR_NETWORK" oifname "ens192" counter masquerade
-            nft list ruleset > /etc/nftables/nftables.nft
-            systemctl restart nftables
-            echo "nftables configured."
+
+            # Display IP masquerade addresses and prompt for confirmation
+            echo "The following network addresses will be used for masquerading:"
+            echo "HQ Network: $HQ_NETWORK"
+            echo "BR Network: $BR_NETWORK"
+            read -p "Proceed with nftables configuration? (y/n): " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                systemctl enable --now nftables
+                nft flush ruleset
+                nft add table ip nat
+                nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
+                # Add rules using the full network address with mask
+                nft add rule ip nat postrouting ip saddr "$HQ_NETWORK" oifname "ens192" counter masquerade
+                nft add rule ip nat postrouting ip saddr "$BR_NETWORK" oifname "ens192" counter masquerade
+                nft list ruleset > /etc/nftables/nftables.nft
+                systemctl restart nftables
+                echo "nftables configured."
+            else
+                echo "nftables configuration skipped."
+            fi
             read -p "Press Enter to continue..."
             ;;
         4)
