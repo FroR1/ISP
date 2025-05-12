@@ -23,31 +23,57 @@ log_message() {
 
 # Initialize log file
 if [ ! -f "$LOG_FILE" ]; then
-    touch "$LOG_FILE" 2>/dev/null || { echo "Error: Cannot create log file at $LOG_FILE." >&2; exit 1; }
+    touch "$LOG_FILE" 2>/dev/null || { echo "Error: Cannot create log file at $LOG_FILE. Please run with sudo and ensure write permissions." >&2; exit 1; }
 fi
 chmod 644 "$LOG_FILE" 2>/dev/null || { echo "Error: Cannot set permissions on log file." >&2; exit 1; }
 
 log_message "Starting ISP configuration script..."
 
-# Check for required commands
-REQUIRED_COMMANDS=("apt-get" "timedatectl" "systemctl" "nft" "ip")
-for cmd in "${REQUIRED_COMMANDS[@]}"; do
+# Check for required commands and install if missing
+check_and_install_command() {
+    local cmd=$1
+    local pkg=$2
     if ! command -v "$cmd" &>/dev/null; then
-        log_message "Error: Required command '$cmd' not found. Please install the necessary package."
-        exit 1
+        log_message "Error: Required command '$cmd' not found. Attempting to install package '$pkg'..."
+        if ! apt-get update >> "$LOG_FILE" 2>&1; then
+            log_message "Warning: Failed to update package lists. Please ensure repositories are configured (e.g., edit /etc/apt/sources.list)."
+            log_message "Manual installation required: sudo apt-get install $pkg"
+            read -p "Press Enter after installing $pkg manually or exit (Ctrl+C)..."
+        else
+            if ! apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1; then
+                log_message "Error: Failed to install $pkg. Please install it manually with 'sudo apt-get install $pkg'."
+                read -p "Press Enter after installing $pkg manually or exit (Ctrl+C)..."
+            else
+                log_message "Package '$pkg' installed successfully."
+                # Refresh PATH to ensure new command is found
+                export PATH=$PATH:/usr/sbin:/usr/local/sbin
+                if ! command -v "$cmd" &>/dev/null; then
+                    log_message "Error: Command '$cmd' still not found after installation. Check PATH or manual installation."
+                    read -p "Press Enter after resolving PATH or manual installation..."
+                fi
+            fi
+        fi
     fi
-done
+}
 
-# Check and install required packages (nftables, tzdata)
-REQUIRED_PACKAGES=("nftables" "tzdata")
-for pkg in "${REQUIRED_PACKAGES[@]}"; do
-    if ! dpkg -l | grep -q "^ii  $pkg "; then
-        log_message "Package '$pkg' not found. Attempting to install..."
-        apt-get update >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to update package lists."; exit 1; }
-        apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to install $pkg."; exit 1; }
-        log_message "Package '$pkg' installed successfully."
+# Check required commands and packages
+check_and_install_command "apt-get" "apt"
+check_and_install_command "timedatectl" "systemd"
+check_and_install_command "systemctl" "systemd"
+check_and_install_command "nft" "nftables"
+check_and_install_command "ip" "iproute2"
+
+# Check and install tzdata if missing
+if ! dpkg -l | grep -q "^ii  tzdata "; then
+    log_message "Package 'tzdata' not found. Attempting to install..."
+    apt-get update >> "$LOG_FILE" 2>&1 || log_message "Warning: Failed to update package lists. Please configure repositories."
+    if ! apt-get install -y tzdata >> "$LOG_FILE" 2>&1; then
+        log_message "Error: Failed to install tzdata. Please install it manually with 'sudo apt-get install tzdata'."
+        read -p "Press Enter after installing tzdata manually or exit (Ctrl+C)..."
+    else
+        log_message "Package 'tzdata' installed successfully."
     fi
-done
+fi
 
 # Function to calculate network address from IP and mask
 get_network() {
