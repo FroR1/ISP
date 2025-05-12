@@ -14,16 +14,44 @@ fi
 # Function to calculate network address from IP and mask
 function get_network() {
     local ip_with_mask=$1
-    if ! command -v ipcalc &> /dev/null; then
-        echo "Error: ipcalc not installed. Please install it with 'apt-get install ipcalc'."
+    # Validate IP format
+    if ! [[ $ip_with_mask =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]{1,2})$ ]]; then
+        echo "Error: Invalid IP format: $ip_with_mask"
         return 1
-    fi
-    # Use ipcalc to get the network address with the correct subnet mask
-    local network=$(ipcalc -n "$ip_with_mask" | grep "Network:" | awk '{print $2}')
-    if [ -z "$network" ]; then
-        echo "Error calculating network for $ip_with_mask."
+    }
+
+    local ip=$(echo "$ip_with_mask" | cut -d'/' -f1)
+    local prefix=$(echo "$ip_with_mask" | cut -d'/' -f2)
+
+    # Validate prefix (0-32)
+    if [ "$prefix" -lt 0 ] || [ "$prefix" -gt 32 ]; then
+        echo "Error: Invalid prefix: $prefix (must be 0-32)"
         return 1
-    fi
+    }
+
+    # Split IP into octets
+    IFS='.' read -r oct1 oct2 oct3 oct4 <<< "$ip"
+
+    # Validate octets (0-255)
+    for oct in $oct1 $oct2 $oct3 $oct4; do
+        if [ "$oct" -lt 0 ] || [ "$oct" -gt 255 ]; then
+            echo "Error: Invalid octet: $oct (must be 0-255)"
+            return 1
+        fi
+    done
+
+    # Calculate network address based on prefix
+    local bits=$((32 - prefix))
+    local mask=$((0xffffffff << bits & 0xffffffff))
+    local ip_num=$(( (oct1 << 24) + (oct2 << 16) + (oct3 << 8) + oct4 ))
+    local net_num=$((ip_num & mask))
+    local net_oct1=$(( (net_num >> 24) & 0xff ))
+    local net_oct2=$(( (net_num >> 16) & 0xff ))
+    local net_oct3=$(( (net_num >> 8) & 0xff ))
+    local net_oct4=$(( net_num & 0xff ))
+
+    # Construct network address
+    local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
     echo "$network"
 }
 
@@ -172,22 +200,22 @@ function edit_data() {
                 ;;
             3)
                 while true; do
-                    read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    read -p "Enter new IP for HQ interface (e.g., 172.16.2.15/16): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.2.15/16 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 ;;
             4)
                 while true; do
-                    read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    read -p "Enter new IP for BR interface (e.g., 172.16.33.1/16): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.33.1/16 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -216,20 +244,20 @@ function edit_data() {
                 read -p "Enter HQ interface name: " INTERFACE_HQ
                 read -p "Enter BR interface name: " INTERFACE_BR
                 while true; do
-                    read -p "Enter IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    read -p "Enter IP for HQ interface (e.g., 172.16.2.15/16): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.2.15/16 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 while true; do
-                    read -p "Enter IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    read -p "Enter IP for BR interface (e.g., 172.16.33.1/16): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.5.1/28 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.33.1/16 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -310,7 +338,7 @@ function show_help() {
     clear
     echo "ISP Configuration Script Help"
     echo "1. Enter or edit your data: Set or modify interface names, IPs, hostname, and time zone."
-    echo "   - IPs should be in format like 172.16.4.1/28 (octets 0-255, prefix 0-32)."
+    echo "   - IPs should be in format like 172.16.2.15/16 (octets 0-255, prefix 0-32)."
     echo "2. Configure interfaces: Sets up interfaces (except ens192) with static IPs."
     echo "3. Configure nftables: Sets up NAT with masquerade for specified IPs."
     echo "4. Set hostname: Apply the specified hostname."
@@ -325,8 +353,8 @@ function show_help() {
 # Default values
 INTERFACE_HQ="ens224"
 INTERFACE_BR="ens256"
-IP_HQ="172.16.4.1/28"
-IP_BR="172.16.5.1/28"
+IP_HQ="172.16.2.15/16"
+IP_BR="172.16.33.1/16"
 HOSTNAME="isp"
 TIME_ZONE="Asia/Novosibirsk"
 
