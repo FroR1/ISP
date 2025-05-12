@@ -152,10 +152,10 @@ function edit_data() {
     while true; do
         clear
         echo "Current Data:"
-        echo "1. HQ interface name: $INTERFACE_HQ"
-        echo "2. BR interface name: $INTERFACE_BR"
-        echo "3. IP for HQ interface: $IP_HQ"
-        echo "4. IP for BR interface: $IP_BR"
+        echo "1. First interface name: $INTERFACE_HQ"
+        echo "2. Second interface name: $INTERFACE_BR"
+        echo "3. IP for First interface: $IP_HQ"
+        echo "4. IP for Second interface: $IP_BR"
         echo "5. Hostname: $HOSTNAME"
         echo "6. Set time zone"
         echo "7. Enter new data"
