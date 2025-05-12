@@ -290,6 +290,26 @@ configure_interfaces() {
     read -p "Press Enter to continue..."
 }
 
+# Function to enable IP forwarding
+enable_ip_forwarding() {
+    local current_forwarding=$(sysctl -n net.ipv4.ip_forward)
+    if [ "$current_forwarding" -eq 0 ]; then
+        log_message "IP forwarding is disabled. Enabling temporarily and permanently..."
+        echo 1 > /proc/sys/net/ipv4/ip_forward 2>>"$LOG_FILE" || { log_message "Error: Failed to enable IP forwarding temporarily."; return 1; }
+        if grep -q "^net.ipv4.ip_forward" /etc/net/sysctl.conf; then
+            sed -i '/^net.ipv4.ip_forward/c\net.ipv4.ip_forward = 1' /etc/net/sysctl.conf 2>>"$LOG_FILE" || { log_message "Error: Failed to modify sysctl.conf."; return 1; }
+        elif grep -q "^#net.ipv4.ip_forward" /etc/net/sysctl.conf; then
+            sed -i 's/^#net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' /etc/net/sysctl.conf 2>>"$LOG_FILE" || { log_message "Error: Failed to modify sysctl.conf."; return 1; }
+        else
+            echo "net.ipv4.ip_forward = 1" >> /etc/net/sysctl.conf 2>>"$LOG_FILE" || { log_message "Error: Failed to append to sysctl.conf."; return 1; }
+        fi
+        sysctl -p >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to apply sysctl settings."; return 1; }
+        log_message "IP forwarding enabled."
+    else
+        log_message "IP forwarding is already enabled."
+    fi
+}
+
 # Function to configure nftables via /etc/nftables/nftables.nft
 configure_nftables() {
     if [ -z "$IP_HQ" ] || [ -z "$IP_BR" ] || [ -z "$INTERFACE_OUT" ]; then
@@ -306,14 +326,7 @@ configure_nftables() {
     fi
 
     # Enable IP forwarding
-    if grep -q "^net.ipv4.ip_forward" /etc/sysctl.conf; then
-        sed -i '/^net.ipv4.ip_forward/c\net.ipv4.ip_forward = 1' /etc/sysctl.conf 2>>"$LOG_FILE" || { log_message "Error: Failed to modify sysctl.conf."; return 1; }
-    elif grep -q "^#net.ipv4.ip_forward" /etc/sysctl.conf; then
-        sed -i 's/^#net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' /etc/sysctl.conf 2>>"$LOG_FILE" || { log_message "Error: Failed to modify sysctl.conf."; return 1; }
-    else
-        echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf 2>>"$LOG_FILE" || { log_message "Error: Failed to append to sysctl.conf."; return 1; }
-    fi
-    sysctl -p >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to apply sysctl settings."; return 1; }
+    enable_ip_forwarding || return 1
 
     # Calculate networks for masquerading
     HQ_NETWORK=$(get_network "$IP_HQ") || { log_message "Error: Failed to calculate HQ network."; return 1; }
