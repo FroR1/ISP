@@ -18,7 +18,8 @@ function get_network() {
         echo "Error: ipcalc not installed. Please install it with 'apt-get install ipcalc'."
         return 1
     fi
-    local network=$(ipcalc -n "$ip_with_mask" | grep Network | awk '{print $2}' | cut -d'/' -f1)
+    # Use ipcalc to get the network address with the correct subnet mask
+    local network=$(ipcalc -n "$ip_with_mask" | grep "Network:" | awk '{print $2}')
     if [ -z "$network" ]; then
         echo "Error calculating network for $ip_with_mask."
         return 1
@@ -364,15 +365,29 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            # Enable IPv4 forwarding
-            sed -i 's/net.ipv4.ip_forward = 0/net.ipv4.ip_forward = 1/' /etc/sysctl.conf
+            # Enable IPv4 forwarding more reliably
+            if grep -q "^net.ipv4.ip_forward" /etc/net/sysctl.conf; then
+                sed -i '/^net.ipv4.ip_forward/c\net.ipv4.ip_forward=1' /etc/net/sysctl.conf
+            elif grep -q "^#net.ipv4.ip_forward" /etc/net/sysctl.conf; then
+                sed -i 's/^#net.ipv4.ip_forward.*/net.ipv4.ip_forward=1/' /etc/net/sysctl.conf
+            else
+                echo "net.ipv4.ip_forward=1" >> /etc/net/sysctl.conf
+            fi
             sysctl -p
+            # Verify forwarding is enabled
+            if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
+                echo "Error: Failed to enable IPv4 forwarding. Please check /etc/net/sysctl.conf manually."
+                read -p "Press Enter to continue..."
+                continue
+            else
+                echo "IPv4 forwarding enabled successfully."
+            fi
+
             systemctl enable --now nftables
             nft flush ruleset
             nft add table ip nat
             nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
-            HQ_PREFIX=$(echo "$IP_HQ" | cut -d'/' -f2)
-            BR_PREFIX=$(echo "$IP_BR" | cut -d'/' -f2)
+            # Get the network addresses with correct masks
             HQ_NETWORK=$(get_network "$IP_HQ")
             BR_NETWORK=$(get_network "$IP_BR")
             if [ -z "$HQ_NETWORK" ] || [ -z "$BR_NETWORK" ]; then
@@ -380,8 +395,9 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            nft add rule ip nat postrouting ip saddr "$HQ_NETWORK/$HQ_PREFIX" oifname "ens192" counter masquerade
-            nft add rule ip nat postrouting ip saddr "$BR_NETWORK/$BR_PREFIX" oifname "ens192" counter masquerade
+            # Add rules using the full network address with mask
+            nft add rule ip nat postrouting ip saddr "$HQ_NETWORK" oifname "ens192" counter masquerade
+            nft add rule ip nat postrouting ip saddr "$BR_NETWORK" oifname "ens192" counter masquerade
             nft list ruleset > /etc/nftables/nftables.nft
             systemctl restart nftables
             echo "nftables configured."
@@ -459,7 +475,9 @@ while true; do
                         rm -f /etc/nftables/nftables.nft.*
                         systemctl stop nftables
                         systemctl disable nftables
-                        sed -i 's/net.ipv4.ip_forward = 1/#net.ipv4.ip_forward = 1/' /etc/sysctl.conf
+                        if grep -q "^net.ipv4.ip_forward" /etc/net/sysctl.conf; then
+                            sed -i '/^net.ipv4.ip_forward/c\#net.ipv4.ip_forward=0' /etc/net/sysctl.conf
+                        fi
                         sysctl -p
                         echo "Everything done by this script has been removed."
                         read -p "Press Enter to continue..."
