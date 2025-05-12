@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Check for tzdata at the start of the script
+if ! dpkg -l | grep -q tzdata; then
+    echo "Installing tzdata to provide timezone data..."
+    apt-get update
+    apt-get install -y tzdata
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to install tzdata. Please install it manually with 'apt-get install tzdata'."
+        exit 1
+    fi
+fi
+
 # Function to calculate network address from IP and mask
 function get_network() {
     local ip_with_mask=$1
@@ -22,8 +33,21 @@ function check_timezone() {
         echo "Error: timedatectl not found. Please install systemd."
         return 1
     fi
-    timedatectl list-timezones | grep -Fxq "$tz"
-    return $?
+    # Debug output to see what timedatectl returns
+    echo "Checking timezone $tz..."
+    if ! timedatectl list-timezones > /tmp/tzlist.log 2>&1; then
+        echo "Error: Failed to list timezones with timedatectl. Check /tmp/tzlist.log for details."
+        return 1
+    fi
+    if grep -Fxq "$tz" /tmp/tzlist.log; then
+        echo "Timezone $tz is valid."
+        return 0
+    else
+        echo "Timezone $tz not found in timedatectl list-timezones output."
+        echo "First few lines of timedatectl list-timezones output (see /tmp/tzlist.log for full list):"
+        head -n 5 /tmp/tzlist.log
+        return 1
+    fi
 }
 
 # Function to set timezone to Asia/Novosibirsk
@@ -320,7 +344,7 @@ while true; do
                 continue
             fi
             apt-get update
-            apt-get install -y nftables ipcalc systemd
+            apt-get install -y nftables ipcalc systemd tzdata
             for iface in $INTERFACE_HQ $INTERFACE_BR; do
                 mkdir -p /etc/net/ifaces/$iface
                 echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" > /etc/net/ifaces/$iface/options
