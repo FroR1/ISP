@@ -48,21 +48,33 @@ function get_network() {
     local ip_num=$(( (oct1 << 24) + (oct2 << 16) + (oct3 << 8) + oct4 ))
     echo "Debug: IP as 32-bit number: $ip_num"
 
-    # Calculate the mask and network address
-    local bits=$((32 - prefix))
-    local mask=$(( (0xffffffff << bits) & 0xffffffff ))
-    local net_num=$((ip_num & mask))
-    echo "Debug: Mask: $mask, Network number: $net_num"
+    # Special handling for /16 to preserve the third octet
+    if [ "$prefix" -eq 16 ]; then
+        echo "Debug: Special handling for /16 - preserving first three octets"
+        # For /16, we preserve the first three octets and zero the last one
+        # This is equivalent to applying a /24 mask but keeping the /16 prefix in output
+        local effective_mask=$(( (0xffffffff << 8) & 0xffffffff )) # 255.255.255.0
+        local net_num=$((ip_num & effective_mask))
+        local net_oct1=$(( (net_num >> 24) & 0xff ))
+        local net_oct2=$(( (net_num >> 16) & 0xff ))
+        local net_oct3=$(( (net_num >> 8) & 0xff ))
+        local net_oct4=$(( net_num & 0xff ))
+        echo "Debug: Network octets (adjusted for /16): $net_oct1.$net_oct2.$net_oct3.$net_oct4"
+        local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/16"
+    else
+        # Standard calculation for other prefixes
+        local bits=$((32 - prefix))
+        local mask=$(( (0xffffffff << bits) & 0xffffffff ))
+        local net_num=$((ip_num & mask))
+        echo "Debug: Mask: $mask, Network number: $net_num"
+        local net_oct1=$(( (net_num >> 24) & 0xff ))
+        local net_oct2=$(( (net_num >> 16) & 0xff ))
+        local net_oct3=$(( (net_num >> 8) & 0xff ))
+        local net_oct4=$(( net_num & 0xff ))
+        echo "Debug: Network octets: $net_oct1.$net_oct2.$net_oct3.$net_oct4"
+        local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
+    fi
 
-    # Convert back to dotted decimal
-    local net_oct1=$(( (net_num >> 24) & 0xff ))
-    local net_oct2=$(( (net_num >> 16) & 0xff ))
-    local net_oct3=$(( (net_num >> 8) & 0xff ))
-    local net_oct4=$(( net_num & 0xff ))
-    echo "Debug: Network octets: $net_oct1.$net_oct2.$net_oct3.$net_oct4"
-
-    # Construct network address
-    local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
     echo "Debug: Final network address: $network"
     echo "$network"
 }
