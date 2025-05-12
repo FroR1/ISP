@@ -4,7 +4,7 @@
 function get_network() {
     local ip_with_mask=$1
     if ! command -v ipcalc &> /dev/null; then
-        echo "Error: ipcalc not installed. Please install it with 'sudo apt-get install ipcalc'."
+        echo "Error: ipcalc not installed. Please install it with 'apt-get install ipcalc'."
         return 1
     fi
     local network=$(ipcalc -n "$ip_with_mask" | grep Network | awk '{print $2}' | cut -d'/' -f1)
@@ -30,7 +30,7 @@ function check_timezone() {
 function set_timezone_novosibirsk() {
     local tz="Asia/Novosibirsk"
     if check_timezone "$tz"; then
-        sudo timedatectl set-timezone "$tz"
+        timedatectl set-timezone "$tz"
         if [ $? -eq 0 ]; then
             echo "Time zone set to $tz."
             TIME_ZONE="$tz"
@@ -174,7 +174,7 @@ function edit_data() {
                 while true; do
                     read -p "Enter new time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
                     if check_timezone "$TIME_ZONE"; then
-                        sudo timedatectl set-timezone "$TIME_ZONE"
+                        timedatectl set-timezone "$TIME_ZONE"
                         if [ $? -eq 0 ]; then
                             echo "Time zone set to $TIME_ZONE."
                             break
@@ -242,29 +242,29 @@ function remove_config() {
     local config=$1
     case $config in
         "interfaces")
-            sudo mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
-            sudo cp -r /etc/net/ifaces/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
-            sudo rm -rf /etc/net/ifaces/$INTERFACE_HQ
-            sudo rm -rf /etc/net/ifaces/$INTERFACE_BR
+            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
+            cp -r /etc/net/ifaces/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
+            rm -rf /etc/net/ifaces/$INTERFACE_HQ
+            rm -rf /etc/net/ifaces/$INTERFACE_BR
             echo "Interface configurations removed. Backup created in /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/."
             ;;
         "nftables")
-            sudo mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
-            sudo cp -r /etc/nftables/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
-            sudo nft flush ruleset
-            sudo rm -f /etc/nftables/nftables.nft
-            sudo rm -f /etc/nftables/nftables.nft.bak
-            sudo rm -f /etc/nftables/nftables.nft.*
-            sudo systemctl stop nftables
+            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
+            cp -r /etc/nftables/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
+            nft flush ruleset
+            rm -f /etc/nftables/nftables.nft
+            rm -f /etc/nftables/nftables.nft.bak
+            rm -f /etc/nftables/nftables.nft.*
+            systemctl stop nftables
             echo "nftables configurations and backups removed. Backup created in /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/."
             ;;
         "time_zone")
-            sudo timedatectl set-timezone UTC
+            timedatectl set-timezone UTC
             echo "Time zone reset to UTC."
             ;;
         "hostname")
-            echo "localhost" | sudo tee /etc/hostname
-            sudo hostnamectl set-hostname localhost
+            echo "localhost" > /etc/hostname
+            hostnamectl set-hostname localhost
             echo "Hostname reset to localhost."
             ;;
         "all")
@@ -319,18 +319,18 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            sudo apt-get update
-            sudo apt-get install -y nftables ipcalc systemd
+            apt-get update
+            apt-get install -y nftables ipcalc systemd
             for iface in $INTERFACE_HQ $INTERFACE_BR; do
-                sudo mkdir -p /etc/net/ifaces/$iface
-                echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" | sudo tee /etc/net/ifaces/$iface/options
+                mkdir -p /etc/net/ifaces/$iface
+                echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" > /etc/net/ifaces/$iface/options
                 if [ "$iface" = "$INTERFACE_HQ" ]; then
-                    echo "$IP_HQ" | sudo tee /etc/net/ifaces/$iface/ipv4address
+                    echo "$IP_HQ" > /etc/net/ifaces/$iface/ipv4address
                 elif [ "$iface" = "$INTERFACE_BR" ]; then
-                    echo "$IP_BR" | sudo tee /etc/net/ifaces/$iface/ipv4address
+                    echo "$IP_BR" > /etc/net/ifaces/$iface/ipv4address
                 fi
             done
-            sudo systemctl restart network
+            systemctl restart network
             echo "Interfaces configured."
             read -p "Press Enter to continue..."
             ;;
@@ -340,12 +340,12 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            sudo sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
-            sudo sysctl -p
-            sudo systemctl enable --now nftables
-            sudo nft flush ruleset
-            sudo nft add table ip nat
-            sudo nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
+            sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+            sysctl -p
+            systemctl enable --now nftables
+            nft flush ruleset
+            nft add table ip nat
+            nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
             HQ_PREFIX=$(echo "$IP_HQ" | cut -d'/' -f2)
             BR_PREFIX=$(echo "$IP_BR" | cut -d'/' -f2)
             HQ_NETWORK=$(get_network "$IP_HQ")
@@ -355,10 +355,10 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            sudo nft add rule ip nat postrouting ip saddr "$HQ_NETWORK/$HQ_PREFIX" oifname "ens192" counter masquerade
-            sudo nft add rule ip nat postrouting ip saddr "$BR_NETWORK/$BR_PREFIX" oifname "ens192" counter masquerade
-            sudo nft list ruleset | sudo tee /etc/nftables/nftables.nft
-            sudo systemctl restart nftables
+            nft add rule ip nat postrouting ip saddr "$HQ_NETWORK/$HQ_PREFIX" oifname "ens192" counter masquerade
+            nft add rule ip nat postrouting ip saddr "$BR_NETWORK/$BR_PREFIX" oifname "ens192" counter masquerade
+            nft list ruleset > /etc/nftables/nftables.nft
+            systemctl restart nftables
             echo "nftables configured."
             read -p "Press Enter to continue..."
             ;;
@@ -368,8 +368,8 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            echo "$HOSTNAME" | sudo tee /etc/hostname
-            sudo hostnamectl set-hostname "$HOSTNAME"
+            echo "$HOSTNAME" > /etc/hostname
+            hostnamectl set-hostname "$HOSTNAME"
             echo "Hostname set to $HOSTNAME."
             read -p "Press Enter to continue..."
             ;;
@@ -429,13 +429,13 @@ while true; do
                         ;;
                     6)
                         remove_config "all"
-                        sudo rm -f /etc/nftables/nftables.nft
-                        sudo rm -f /etc/nftables/nftables.nft.bak
-                        sudo rm -f /etc/nftables/nftables.nft.*
-                        sudo systemctl stop nftables
-                        sudo systemctl disable nftables
-                        sudo sed -i 's/net.ipv4.ip_forward=1/#net.ipv4.ip_forward=1/' /etc/sysctl.conf
-                        sudo sysctl -p
+                        rm -f /etc/nftables/nftables.nft
+                        rm -f /etc/nftables/nftables.nft.bak
+                        rm -f /etc/nftables/nftables.nft.*
+                        systemctl stop nftables
+                        systemctl disable nftables
+                        sed -i 's/net.ipv4.ip_forward=1/#net.ipv4.ip_forward=1/' /etc/sysctl.conf
+                        sysctl -p
                         echo "Everything done by this script has been removed."
                         read -p "Press Enter to continue..."
                         ;;
