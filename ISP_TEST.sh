@@ -14,6 +14,8 @@ fi
 # Function to calculate network address from IP and mask
 function get_network() {
     local ip_with_mask=$1
+    echo "Debug: Processing IP with mask: $ip_with_mask"
+
     # Validate IP format
     if ! [[ $ip_with_mask =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]{1,2})$ ]]; then
         echo "Error: Invalid IP format: $ip_with_mask"
@@ -22,6 +24,7 @@ function get_network() {
 
     local ip=$(echo "$ip_with_mask" | cut -d'/' -f1)
     local prefix=$(echo "$ip_with_mask" | cut -d'/' -f2)
+    echo "Debug: IP: $ip, Prefix: $prefix"
 
     # Validate prefix (0-32)
     if [ "$prefix" -lt 0 ] || [ "$prefix" -gt 32 ]; then
@@ -31,6 +34,7 @@ function get_network() {
 
     # Split IP into octets
     IFS='.' read -r oct1 oct2 oct3 oct4 <<< "$ip"
+    echo "Debug: Octets: $oct1.$oct2.$oct3.$oct4"
 
     # Validate octets (0-255)
     for oct in $oct1 $oct2 $oct3 $oct4; do
@@ -40,18 +44,26 @@ function get_network() {
         fi
     done
 
-    # Calculate network address based on prefix
-    local bits=$((32 - prefix))
-    local mask=$((0xffffffff << bits & 0xffffffff))
+    # Convert IP to 32-bit number
     local ip_num=$(( (oct1 << 24) + (oct2 << 16) + (oct3 << 8) + oct4 ))
+    echo "Debug: IP as 32-bit number: $ip_num"
+
+    # Calculate the mask and network address
+    local bits=$((32 - prefix))
+    local mask=$(( (0xffffffff << bits) & 0xffffffff ))
     local net_num=$((ip_num & mask))
+    echo "Debug: Mask: $mask, Network number: $net_num"
+
+    # Convert back to dotted decimal
     local net_oct1=$(( (net_num >> 24) & 0xff ))
     local net_oct2=$(( (net_num >> 16) & 0xff ))
     local net_oct3=$(( (net_num >> 8) & 0xff ))
     local net_oct4=$(( net_num & 0xff ))
+    echo "Debug: Network octets: $net_oct1.$net_oct2.$net_oct3.$net_oct4"
 
     # Construct network address
     local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
+    echo "Debug: Final network address: $network"
     echo "$network"
 }
 
@@ -353,8 +365,8 @@ function show_help() {
 # Default values
 INTERFACE_HQ="ens224"
 INTERFACE_BR="ens256"
-IP_HQ="172.16.2.15/16"
-IP_BR="172.16.33.1/16"
+IP_HQ="172.16.4.1/28"
+IP_BR="172.16.5.1/28"
 HOSTNAME="isp"
 TIME_ZONE="Asia/Novosibirsk"
 
@@ -373,7 +385,7 @@ while true; do
                 continue
             fi
             apt-get update
-            apt-get install -y nftables ipcalc systemd tzdata
+            apt-get install -y nftables systemd tzdata
             for iface in $INTERFACE_HQ $INTERFACE_BR; do
                 mkdir -p /etc/net/ifaces/$iface
                 echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" > /etc/net/ifaces/$iface/options
