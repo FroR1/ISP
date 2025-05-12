@@ -18,7 +18,8 @@ function get_network() {
         echo "Error: ipcalc not installed. Please install it with 'apt-get install ipcalc'."
         return 1
     fi
-    local network=$(ipcalc -n "$ip_with_mask" | grep Network | awk '{print $2}' | cut -d'/' -f1)
+    # Use ipcalc to get the network address and preserve the CIDR
+    local network=$(ipcalc -n "$ip_with_mask" | grep "Network:" | awk '{print $2}')
     if [ -z "$network" ]; then
         echo "Error calculating network for $ip_with_mask."
         return 1
@@ -33,7 +34,6 @@ function check_timezone() {
         echo "Error: timedatectl not found. Please install systemd."
         return 1
     fi
-    # Debug output to see what timedatectl returns
     echo "Checking timezone $tz..."
     if ! timedatectl list-timezones > /tmp/tzlist.log 2>&1; then
         echo "Error: Failed to list timezones with timedatectl. Check /tmp/tzlist.log for details."
@@ -152,10 +152,10 @@ function edit_data() {
     while true; do
         clear
         echo "Current Data:"
-        echo "1. First interface name: $INTERFACE_HQ"
-        echo "2. Second interface name: $INTERFACE_BR"
-        echo "3. IP for First interface: $IP_HQ"
-        echo "4. IP for Second interface: $IP_BR"
+        echo "1. HQ interface name: $INTERFACE_HQ"
+        echo "2. BR interface name: $INTERFACE_BR"
+        echo "3. IP for HQ interface: $IP_HQ"
+        echo "4. IP for BR interface: $IP_BR"
         echo "5. Hostname: $HOSTNAME"
         echo "6. Set time zone"
         echo "7. Enter new data"
@@ -164,14 +164,14 @@ function edit_data() {
         read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
             1)
-                read -p "Enter new first interface name: " INTERFACE_HQ
+                read -p "Enter new HQ interface name: " INTERFACE_HQ
                 ;;
             2)
-                read -p "Enter new second interface name: " INTERFACE_BR
+                read -p "Enter new BR interface name: " INTERFACE_BR
                 ;;
             3)
                 while true; do
-                    read -p "Enter new IP for Fisrt interface (e.g., 172.16.4.1/28): " IP_HQ
+                    read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
@@ -182,7 +182,7 @@ function edit_data() {
                 ;;
             4)
                 while true; do
-                    read -p "Enter new IP for Second interface (e.g., 172.16.5.1/28): " IP_BR
+                    read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
@@ -370,17 +370,11 @@ while true; do
             nft flush ruleset
             nft add table ip nat
             nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
-            HQ_PREFIX=$(echo "$IP_HQ" | cut -d'/' -f2)
-            BR_PREFIX=$(echo "$IP_BR" | cut -d'/' -f2)
-            HQ_NETWORK=$(get_network "$IP_HQ")
-            BR_NETWORK=$(get_network "$IP_BR")
-            if [ -z "$HQ_NETWORK" ] || [ -z "$BR_NETWORK" ]; then
-                echo "Error calculating network addresses. Please check your IP inputs."
-                read -p "Press Enter to continue..."
-                continue
-            fi
-            nft add rule ip nat postrouting ip saddr "$HQ_NETWORK/$HQ_PREFIX" oifname "ens192" counter masquerade
-            nft add rule ip nat postrouting ip saddr "$BR_NETWORK/$BR_PREFIX" oifname "ens192" counter masquerade
+            # Use the full IP with CIDR directly to ensure correct subnet
+            nft add rule ip nat postrouting ip saddr "$IP_HQ" oifname "ens192" counter masquerade
+            nft add rule ip nat postrouting ip saddr "$IP_BR" oifname "ens192" counter masquerade
+            # Debug output to verify rules
+            echo "Applied nft rules: $(nft list ruleset)"
             nft list ruleset > /etc/nftables/nftables.nft
             systemctl restart nftables
             echo "nftables configured."
@@ -427,7 +421,6 @@ while true; do
                 echo "3. Remove time zone configuration"
                 echo "4. Remove hostname configuration"
                 echo "5. Remove all configurations"
-                echo "6. Remove everything done by this script"
                 echo "0. Back to main menu"
                 read -p "Enter your choice: " remove_choice
                 case $remove_choice in
@@ -449,18 +442,6 @@ while true; do
                         ;;
                     5)
                         remove_config "all"
-                        read -p "Press Enter to continue..."
-                        ;;
-                    6)
-                        remove_config "all"
-                        rm -f /etc/nftables/nftables.nft
-                        rm -f /etc/nftables/nftables.nft.bak
-                        rm -f /etc/nftables/nftables.nft.*
-                        systemctl stop nftables
-                        systemctl disable nftables
-                        sed -i 's/net.ipv4.ip_forward=1/#net.ipv4.ip_forward=1/' /etc/sysctl.conf
-                        sysctl -p
-                        echo "Everything done by this script has been removed."
                         read -p "Press Enter to continue..."
                         ;;
                     0)
