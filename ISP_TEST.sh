@@ -1,14 +1,23 @@
 #!/bin/bash
 
+# Function to log errors and exit
+function log_error() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Check for required commands at the start of the script
+for cmd in dpkg apt-get timedatectl systemctl nft ip; do
+    if ! command -v "$cmd" &> /dev/null; then
+        log_error "Required command '$cmd' not found. Please install the necessary package."
+    fi
+done
+
 # Check for tzdata at the start of the script
 if ! dpkg -l | grep -q tzdata; then
     echo "Installing tzdata to provide timezone data..."
-    apt-get update
-    apt-get install -y tzdata
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to install tzdata. Please install it manually with 'apt-get install tzdata'."
-        exit 1
-    fi
+    apt-get update || log_error "Failed to update package lists."
+    apt-get install -y tzdata || log_error "Failed to install tzdata. Please install it manually with 'apt-get install tzdata'."
 fi
 
 # Function to calculate network address from IP and mask
@@ -18,8 +27,7 @@ function get_network() {
 
     # Validate IP format
     if ! [[ $ip_with_mask =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]{1,2})$ ]]; then
-        echo "Error: Invalid IP format: $ip_with_mask"
-        return 1
+        log_error "Invalid IP format: $ip_with_mask"
     }
 
     local ip=$(echo "$ip_with_mask" | cut -d'/' -f1)
@@ -28,8 +36,7 @@ function get_network() {
 
     # Validate prefix (0-32)
     if [ "$prefix" -lt 0 ] || [ "$prefix" -gt 32 ]; then
-        echo "Error: Invalid prefix: $prefix (must be 0-32)"
-        return 1
+        log_error "Invalid prefix: $prefix (must be 0-32)"
     }
 
     # Split IP into octets
@@ -39,8 +46,7 @@ function get_network() {
     # Validate octets (0-255)
     for oct in $oct1 $oct2 $oct3 $oct4; do
         if [ "$oct" -lt 0 ] || [ "$oct" -gt 255 ]; then
-            echo "Error: Invalid octet: $oct (must be 0-255)"
-            return 1
+            log_error "Invalid octet: $oct (must be 0-255)"
         fi
     done
 
@@ -48,33 +54,21 @@ function get_network() {
     local ip_num=$(( (oct1 << 24) + (oct2 << 16) + (oct3 << 8) + oct4 ))
     echo "Debug: IP as 32-bit number: $ip_num"
 
-    # Special handling for /16 to preserve the third octet
-    if [ "$prefix" -eq 16 ]; then
-        echo "Debug: Special handling for /16 - preserving first three octets"
-        # For /16, we preserve the first three octets and zero the last one
-        # This is equivalent to applying a /24 mask but keeping the /16 prefix in output
-        local effective_mask=$(( (0xffffffff << 8) & 0xffffffff )) # 255.255.255.0
-        local net_num=$((ip_num & effective_mask))
-        local net_oct1=$(( (net_num >> 24) & 0xff ))
-        local net_oct2=$(( (net_num >> 16) & 0xff ))
-        local net_oct3=$(( (net_num >> 8) & 0xff ))
-        local net_oct4=$(( net_num & 0xff ))
-        echo "Debug: Network octets (adjusted for /16): $net_oct1.$net_oct2.$net_oct3.$net_oct4"
-        local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/16"
-    else
-        # Standard calculation for other prefixes
-        local bits=$((32 - prefix))
-        local mask=$(( (0xffffffff << bits) & 0xffffffff ))
-        local net_num=$((ip_num & mask))
-        echo "Debug: Mask: $mask, Network number: $net_num"
-        local net_oct1=$(( (net_num >> 24) & 0xff ))
-        local net_oct2=$(( (net_num >> 16) & 0xff ))
-        local net_oct3=$(( (net_num >> 8) & 0xff ))
-        local net_oct4=$(( net_num & 0xff ))
-        echo "Debug: Network octets: $net_oct1.$net_oct2.$net_oct3.$net_oct4"
-        local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
-    fi
+    # Calculate the mask and network address
+    local bits=$((32 - prefix))
+    local mask=$(( (0xffffffff << bits) & 0xffffffff ))
+    local net_num=$((ip_num & mask))
+    echo "Debug: Mask: $mask, Network number: $net_num"
 
+    # Convert back to dotted decimal
+    local net_oct1=$(( (net_num >> 24) & 0xff ))
+    local net_oct2=$(( (net_num >> 16) & 0xff ))
+    local net_oct3=$(( (net_num >> 8) & 0xff ))
+    local net_oct4=$(( net_num & 0xff ))
+    echo "Debug: Network octets: $net_oct1.$net_oct2.$net_oct3.$net_oct4"
+
+    # Construct network address
+    local network="${net_oct1}.${net_oct2}.${net_oct3}.${net_oct4}/${prefix}"
     echo "Debug: Final network address: $network"
     echo "$network"
 }
@@ -82,15 +76,9 @@ function get_network() {
 # Function to check if timezone exists
 function check_timezone() {
     local tz=$1
-    if ! command -v timedatectl &> /dev/null; then
-        echo "Error: timedatectl not found. Please install systemd."
-        return 1
-    fi
-    # Debug output to see what timedatectl returns
     echo "Checking timezone $tz..."
     if ! timedatectl list-timezones > /tmp/tzlist.log 2>&1; then
-        echo "Error: Failed to list timezones with timedatectl. Check /tmp/tzlist.log for details."
-        return 1
+        log_error "Failed to list timezones with timedatectl. Check /tmp/tzlist.log for details."
     fi
     if grep -Fxq "$tz" /tmp/tzlist.log; then
         echo "Timezone $tz is valid."
@@ -107,13 +95,9 @@ function check_timezone() {
 function set_timezone_novosibirsk() {
     local tz="Asia/Novosibirsk"
     if check_timezone "$tz"; then
-        timedatectl set-timezone "$tz"
-        if [ $? -eq 0 ]; then
-            echo "Time zone set to $tz."
-            TIME_ZONE="$tz"
-        else
-            echo "Error setting time zone to $tz."
-        fi
+        timedatectl set-timezone "$tz" || log_error "Failed to set timezone to $tz."
+        echo "Time zone set to $tz."
+        TIME_ZONE="$tz"
     else
         echo "Time zone $tz is invalid. Use 'timedatectl list-timezones' to see valid options."
     fi
@@ -205,11 +189,11 @@ function edit_data() {
     while true; do
         clear
         echo "Current Data:"
-        echo "1. HQ interface name: $INTERFACE_HQ"
-        echo "2. BR interface name: $INTERFACE_BR"
-        echo "3. IP for HQ interface: $IP_HQ"
-        echo "4. IP for BR interface: $IP_BR"
-        echo "5. Hostname: $HOSTNAME"
+        echo "1. HQ interface name: ${INTERFACE_HQ:-Not set}"
+        echo "2. BR interface name: ${INTERFACE_BR:-Not set}"
+        echo "3. IP for HQ interface: ${IP_HQ:-Not set}"
+        echo "4. IP for BR interface: ${IP_BR:-Not set}"
+        echo "5. Hostname: ${HOSTNAME:-Not set}"
         echo "6. Set time zone"
         echo "7. Enter new data"
         echo "8. Show network map"
@@ -224,22 +208,22 @@ function edit_data() {
                 ;;
             3)
                 while true; do
-                    read -p "Enter new IP for HQ interface (e.g., 172.16.2.15/16): " IP_HQ
+                    read -p "Enter new IP for HQ interface (e.g., 172.16.2.15/24): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.2.15/16 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.2.15/24 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 ;;
             4)
                 while true; do
-                    read -p "Enter new IP for BR interface (e.g., 172.16.33.1/16): " IP_BR
+                    read -p "Enter new IP for BR interface (e.g., 172.16.33.1/24): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.33.1/16 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.33.1/24 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -251,13 +235,9 @@ function edit_data() {
                 while true; do
                     read -p "Enter new time zone (e.g., Asia/Novosibirsk): " TIME_ZONE
                     if check_timezone "$TIME_ZONE"; then
-                        timedatectl set-timezone "$TIME_ZONE"
-                        if [ $? -eq 0 ]; then
-                            echo "Time zone set to $TIME_ZONE."
-                            break
-                        else
-                            echo "Error setting time zone. Please try again."
-                        fi
+                        timedatectl set-timezone "$TIME_ZONE" || log_error "Failed to set timezone to $TIME_ZONE."
+                        echo "Time zone set to $TIME_ZONE."
+                        break
                     else
                         echo "Invalid time zone: $TIME_ZONE. Use 'timedatectl list-timezones' to see valid options."
                     fi
@@ -268,20 +248,20 @@ function edit_data() {
                 read -p "Enter HQ interface name: " INTERFACE_HQ
                 read -p "Enter BR interface name: " INTERFACE_BR
                 while true; do
-                    read -p "Enter IP for HQ interface (e.g., 172.16.2.15/16): " IP_HQ
+                    read -p "Enter IP for HQ interface (e.g., 172.16.2.15/24): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.2.15/16 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.2.15/24 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
                 while true; do
-                    read -p "Enter IP for BR interface (e.g., 172.16.33.1/16): " IP_BR
+                    read -p "Enter IP for BR interface (e.g., 172.16.33.1/24): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
-                        echo "Invalid IP format. Please use format like 172.16.33.1/16 (octets 0-255, prefix 0-32)."
+                        echo "Invalid IP format. Please use format like 172.16.33.1/24 (octets 0-255, prefix 0-32)."
                         read -p "Press Enter to try again..."
                     fi
                 done
@@ -298,7 +278,7 @@ function edit_data() {
                 echo "          |"
                 echo "  +----------------+    +----------------+"
                 echo "  | $INTERFACE_HQ  |----| $INTERFACE_BR  |"
-                echo "  | IP: $IP_HQ    |    | IP: $IP_BR    |"
+                echo "  | IP: ${IP_HQ:-Not set}    |    | IP: ${IP_BR:-Not set}    |"
                 echo "  +----------------+    +----------------+"
                 echo "Press Enter to return..."
                 read
@@ -319,29 +299,29 @@ function remove_config() {
     local config=$1
     case $config in
         "interfaces")
-            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
+            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S) || log_error "Failed to create backup directory."
             cp -r /etc/net/ifaces/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
             rm -rf /etc/net/ifaces/$INTERFACE_HQ
             rm -rf /etc/net/ifaces/$INTERFACE_BR
             echo "Interface configurations removed. Backup created in /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/."
             ;;
         "nftables")
-            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S)
+            mkdir -p /etc/isp_backup/$(date +%Y%m%d_%H%M%S) || log_error "Failed to create backup directory."
             cp -r /etc/nftables/* /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/ 2>/dev/null
-            nft flush ruleset
+            nft flush ruleset || log_error "Failed to flush nftables ruleset."
             rm -f /etc/nftables/nftables.nft
             rm -f /etc/nftables/nftables.nft.bak
             rm -f /etc/nftables/nftables.nft.*
-            systemctl stop nftables
+            systemctl stop nftables || log_error "Failed to stop nftables service."
             echo "nftables configurations and backups removed. Backup created in /etc/isp_backup/$(date +%Y%m%d_%H%M%S)/."
             ;;
         "time_zone")
-            timedatectl set-timezone UTC
+            timedatectl set-timezone UTC || log_error "Failed to set timezone to UTC."
             echo "Time zone reset to UTC."
             ;;
         "hostname")
-            echo "localhost" > /etc/hostname
-            hostnamectl set-hostname localhost
+            echo "localhost" > /etc/hostname || log_error "Failed to write to /etc/hostname."
+            hostnamectl set-hostname localhost || log_error "Failed to set hostname to localhost."
             echo "Hostname reset to localhost."
             ;;
         "all")
@@ -362,7 +342,7 @@ function show_help() {
     clear
     echo "ISP Configuration Script Help"
     echo "1. Enter or edit your data: Set or modify interface names, IPs, hostname, and time zone."
-    echo "   - IPs should be in format like 172.16.2.15/16 (octets 0-255, prefix 0-32)."
+    echo "   - IPs should be in format like 172.16.2.15/24 (octets 0-255, prefix 0-32)."
     echo "2. Configure interfaces: Sets up interfaces (except ens192) with static IPs."
     echo "3. Configure nftables: Sets up NAT with masquerade for specified IPs."
     echo "4. Set hostname: Apply the specified hostname."
@@ -377,8 +357,8 @@ function show_help() {
 # Default values
 INTERFACE_HQ="ens224"
 INTERFACE_BR="ens256"
-IP_HQ="172.16.4.1/28"
-IP_BR="172.16.5.1/28"
+IP_HQ="172.16.2.15/24"
+IP_BR="172.16.33.1/24"
 HOSTNAME="isp"
 TIME_ZONE="Asia/Novosibirsk"
 
@@ -396,18 +376,18 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            apt-get update
-            apt-get install -y nftables systemd tzdata
-            for iface in $INTERFACE_HQ $INTERFACE_BR; do
-                mkdir -p /etc/net/ifaces/$iface
-                echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" > /etc/net/ifaces/$iface/options
+            apt-get update || log_error "Failed to update package lists."
+            apt-get install -y nftables systemd tzdata || log_error "Failed to install required packages."
+            for iface in "$INTERFACE_HQ" "$INTERFACE_BR"; do
+                mkdir -p "/etc/net/ifaces/$iface" || log_error "Failed to create directory for $iface."
+                echo -e "BOOTPROTO=static\nTYPE=eth\nDISABLED=no\nCONFIG_IPV4=yes" > "/etc/net/ifaces/$iface/options" || log_error "Failed to write options for $iface."
                 if [ "$iface" = "$INTERFACE_HQ" ]; then
-                    echo "$IP_HQ" > /etc/net/ifaces/$iface/ipv4address
+                    echo "$IP_HQ" > "/etc/net/ifaces/$iface/ipv4address" || log_error "Failed to set IP for $iface."
                 elif [ "$iface" = "$INTERFACE_BR" ]; then
-                    echo "$IP_BR" > /etc/net/ifaces/$iface/ipv4address
+                    echo "$IP_BR" > "/etc/net/ifaces/$iface/ipv4address" || log_error "Failed to set IP for $iface."
                 fi
             done
-            systemctl restart network
+            systemctl restart network || log_error "Failed to restart network service."
             echo "Interfaces configured."
             read -p "Press Enter to continue..."
             ;;
@@ -417,30 +397,24 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            # Enable IPv4 forwarding more reliably with correct spacing
-            if grep -q "^net.ipv4.ip_forward" /etc/net/sysctl.conf; then
-                sed -i '/^net.ipv4.ip_forward/c\net.ipv4.ip_forward = 1' /etc/net/sysctl.conf
-            elif grep -q "^#net.ipv4.ip_forward" /etc/net/sysctl.conf; then
-                sed -i 's/^#net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' /etc/net/sysctl.conf
+            # Enable IPv4 forwarding
+            if grep -q "^net.ipv4.ip_forward" /etc/sysctl.conf; then
+                sed -i '/^net.ipv4.ip_forward/c\net.ipv4.ip_forward = 1' /etc/sysctl.conf || log_error "Failed to modify sysctl.conf."
+            elif grep -q "^#net.ipv4.ip_forward" /etc/sysctl.conf; then
+                sed -i 's/^#net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' /etc/sysctl.conf || log_error "Failed to modify sysctl.conf."
             else
-                echo "net.ipv4.ip_forward = 1" >> /etc/net/sysctl.conf
+                echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf || log_error "Failed to append to sysctl.conf."
             fi
-            sysctl -p
-            # Verify forwarding is enabled
+            sysctl -p || log_error "Failed to apply sysctl settings."
             if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
-                echo "Warning: Failed to enable IPv4 forwarding. Please check /etc/net/sysctl.conf manually."
+                echo "Warning: Failed to enable IPv4 forwarding. Please check /etc/sysctl.conf manually."
             else
                 echo "IPv4 forwarding enabled successfully."
             fi
 
-            # Get the network addresses with correct masks
-            HQ_NETWORK=$(get_network "$IP_HQ")
-            BR_NETWORK=$(get_network "$IP_BR")
-            if [ -z "$HQ_NETWORK" ] || [ -z "$BR_NETWORK" ]; then
-                echo "Error calculating network addresses. Please check your IP inputs."
-                read -p "Press Enter to continue..."
-                continue
-            fi
+            # Get the network addresses
+            HQ_NETWORK=$(get_network "$IP_HQ") || log_error "Failed to calculate HQ network."
+            BR_NETWORK=$(get_network "$IP_BR") || log_error "Failed to calculate BR network."
 
             # Display IP masquerade addresses and prompt for confirmation
             echo "The following network addresses will be used for masquerading:"
@@ -448,15 +422,14 @@ while true; do
             echo "BR Network: $BR_NETWORK"
             read -p "Proceed with nftables configuration? (y/n): " confirm
             if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                systemctl enable --now nftables
-                nft flush ruleset
-                nft add table ip nat
-                nft add chain ip nat postrouting '{ type nat hook postrouting priority 0; }'
-                # Add rules using the full network address with mask
-                nft add rule ip nat postrouting ip saddr "$HQ_NETWORK" oifname "ens192" counter masquerade
-                nft add rule ip nat postrouting ip saddr "$BR_NETWORK" oifname "ens192" counter masquerade
-                nft list ruleset > /etc/nftables/nftables.nft
-                systemctl restart nftables
+                systemctl enable --now nftables || log_error "Failed to enable or start nftables."
+                nft flush ruleset || log_error "Failed to flush nftables ruleset."
+                nft add table ip nat || log_error "Failed to add nftables table."
+                nft add chain ip nat postrouting "{ type nat hook postrouting priority 0; }" || log_error "Failed to add nftables chain."
+                nft add rule ip nat postrouting ip saddr "$HQ_NETWORK" oifname "ens192" counter masquerade || log_error "Failed to add HQ masquerade rule."
+                nft add rule ip nat postrouting ip saddr "$BR_NETWORK" oifname "ens192" counter masquerade || log_error "Failed to add BR masquerade rule."
+                nft list ruleset > /etc/nftables/nftables.nft || log_error "Failed to save nftables ruleset."
+                systemctl restart nftables || log_error "Failed to restart nftables."
                 echo "nftables configured."
             else
                 echo "nftables configuration skipped."
@@ -469,8 +442,8 @@ while true; do
                 read -p "Press Enter to continue..."
                 continue
             fi
-            echo "$HOSTNAME" > /etc/hostname
-            hostnamectl set-hostname "$HOSTNAME"
+            echo "$HOSTNAME" > /etc/hostname || log_error "Failed to write to /etc/hostname."
+            hostnamectl set-hostname "$HOSTNAME" || log_error "Failed to set hostname."
             echo "Hostname set to $HOSTNAME."
             read -p "Press Enter to continue..."
             ;;
@@ -533,12 +506,12 @@ while true; do
                         rm -f /etc/nftables/nftables.nft
                         rm -f /etc/nftables/nftables.nft.bak
                         rm -f /etc/nftables/nftables.nft.*
-                        systemctl stop nftables
-                        systemctl disable nftables
-                        if grep -q "^net.ipv4.ip_forward" /etc/net/sysctl.conf; then
-                            sed -i '/^net.ipv4.ip_forward/c\#net.ipv4.ip_forward = 0' /etc/net/sysctl.conf
+                        systemctl stop nftables || log_error "Failed to stop nftables."
+                        systemctl disable nftables || log_error "Failed to disable nftables."
+                        if grep -q "^net.ipv4.ip_forward" /etc/sysctl.conf; then
+                            sed -i '/^net.ipv4.ip_forward/c\#net.ipv4.ip_forward = 0' /etc/sysctl.conf || log_error "Failed to modify sysctl.conf."
                         fi
-                        sysctl -p
+                        sysctl -p || log_error "Failed to apply sysctl settings."
                         echo "Everything done by this script has been removed."
                         read -p "Press Enter to continue..."
                         ;;
