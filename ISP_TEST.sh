@@ -164,14 +164,14 @@ function edit_data() {
         read -p "Enter the number to edit or 6 to set time zone or 7 to enter new data (0 to exit): " edit_choice
         case $edit_choice in
             1)
-                read -p "Enter new HQ interface name: " INTERFACE_HQ
+                read -p "Enter new first interface name: " INTERFACE_HQ
                 ;;
             2)
-                read -p "Enter new BR interface name: " INTERFACE_BR
+                read -p "Enter new second interface name: " INTERFACE_BR
                 ;;
             3)
                 while true; do
-                    read -p "Enter new IP for HQ interface (e.g., 172.16.4.1/28): " IP_HQ
+                    read -p "Enter new IP for Fisrt interface (e.g., 172.16.4.1/28): " IP_HQ
                     if validate_ip "$IP_HQ"; then
                         break
                     else
@@ -182,7 +182,7 @@ function edit_data() {
                 ;;
             4)
                 while true; do
-                    read -p "Enter new IP for BR interface (e.g., 172.16.5.1/28): " IP_BR
+                    read -p "Enter new IP for Second interface (e.g., 172.16.5.1/28): " IP_BR
                     if validate_ip "$IP_BR"; then
                         break
                     else
