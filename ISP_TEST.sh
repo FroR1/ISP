@@ -60,6 +60,7 @@ check_and_install_command "timedatectl" "systemd"
 check_and_install_command "systemctl" "systemd"
 check_and_install_command "nft" "nftables"
 check_and_install_command "ip" "iproute2"
+check_and_install_command "locale-gen" "locales"
 
 # Check and install tzdata if missing
 if ! dpkg -l | grep -q "^ii  tzdata "; then
@@ -72,6 +73,22 @@ if ! dpkg -l | grep -q "^ii  tzdata "; then
         log_message "Package 'tzdata' installed successfully."
     fi
 fi
+
+# Function to configure Russian locale
+configure_russian_locale() {
+    log_message "Checking Russian locale (ru_RU.UTF-8)..."
+    if ! locale -a | grep -q "ru_RU.utf8"; then
+        log_message "Russian locale not found. Installing and generating..."
+        apt-get update >> "$LOG_FILE" 2>&1 || { log_message "Warning: Failed to update package lists."; return 1; }
+        apt-get install -y locales >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to install locales package."; return 1; }
+        echo "ru_RU.UTF-8 UTF-8" >> /etc/locale.gen 2>>"$LOG_FILE" || { log_message "Error: Failed to update /etc/locale.gen."; return 1; }
+        locale-gen ru_RU.UTF-8 >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to generate ru_RU.UTF-8 locale."; return 1; }
+        update-locale LANG=ru_RU.UTF-8 >> "$LOG_FILE" 2>&1 || { log_message "Error: Failed to set LANG=ru_RU.UTF-8."; return 1; }
+        log_message "Russian locale (ru_RU.UTF-8) configured."
+    else
+        log_message "Russian locale (ru_RU.UTF-8) already configured."
+    fi
+}
 
 # Function to validate IP address format
 validate_ip() {
@@ -153,6 +170,7 @@ display_menu() {
     echo "3. Configure nftables (NAT)"
     echo "4. Set hostname"
     echo "5. Set time zone to Asia/Novosibirsk"
+    echo "6. Configure all"
     echo "0. Exit"
 }
 
@@ -170,6 +188,7 @@ edit_data() {
         echo "7. Set time zone"
         echo "8. Enter all new data"
         echo "9. Show network map"
+        echo "10. Configure Russian locale"
         echo "0. Back to main menu"
         read -p "Select an option: " choice
         case $choice in
@@ -243,6 +262,7 @@ edit_data() {
                 echo "  +----------------+    +----------------+"
                 read -p "Press Enter to return..."
                 ;;
+            10) configure_russian_locale ;;
             0) break ;;
             *) echo "Invalid choice."; read -p "Press Enter to continue..." ;;
         esac
@@ -258,7 +278,7 @@ configure_interfaces() {
     fi
 
     # Check if interfaces exist
-    for iface in "$INTERFACE_HQ" "$INTERFACE_BR"; do
+    for iface in "$INTERFACE_HQ" "$INTERFACE_BR" "$INTERFACE_OUT"; do
         if ! ip link show "$iface" &>/dev/null; then
             log_message "Error: Interface $iface does not exist."
             read -p "Press Enter to continue..."
@@ -394,6 +414,18 @@ set_timezone_novosibirsk() {
     read -p "Press Enter to continue..."
 }
 
+# Function to configure all settings
+configure_all() {
+    log_message "Starting full configuration..."
+    configure_russian_locale || { log_message "Failed to configure Russian locale."; read -p "Press Enter to continue..."; return 1; }
+    configure_interfaces || { log_message "Failed to configure network interfaces."; read -p "Press Enter to continue..."; return 1; }
+    configure_nftables || { log_message "Failed to configure nftables."; read -p "Press Enter to continue..."; return 1; }
+    set_hostname || { log_message "Failed to set hostname."; read -p "Press Enter to continue..."; return 1; }
+    set_timezone_novosibirsk || { log_message "Failed to set timezone."; read -p "Press Enter to continue..."; return 1; }
+    log_message "All configurations completed successfully."
+    read -p "Press Enter to continue..."
+}
+
 # Main loop
 while true; do
     display_menu
@@ -404,6 +436,7 @@ while true; do
         3) configure_nftables ;;
         4) set_hostname ;;
         5) set_timezone_novosibirsk ;;
+        6) configure_all ;;
         0) log_message "Exiting ISP configuration script."; clear; exit 0 ;;
         *) echo "Invalid choice."; read -p "Press Enter to continue..." ;;
     esac
