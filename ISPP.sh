@@ -62,16 +62,12 @@ check_and_install_command "ip" "iproute2"
 check_and_install_command "locale-gen" "locales"
 
 # Проверка и установка tzdata
-if ! dpkg -l | grep -q "^ii  tzdata "; then
-    log_message "Пакет 'tzdata' не найден. Попытка установить..."
-    apt-get update >> "$LOG_FILE" 2>&1 || log_message "Предупреждение: Не удалось обновить списки пакетов."
-    if ! apt-get install -y tzdata >> "$LOG_FILE" 2>&1; then
-        log_message "Ошибка: Не удалось установить tzdata. Установите вручную: 'sudo apt-get install tzdata'."
-        read -p "Нажмите Enter после ручной установки tzdata или выйдите (Ctrl+C)..."
-    else
-        log_message "Пакет 'tzdata' успешно установлен."
-    fi
-fi
+set_timezone() {
+    echo "Установка часового пояса..."
+    apt-get install -y tzdata
+    timedatectl set-timezone "$TIME_ZONE"
+    echo "Часовой пояс установлен: $TIME_ZONE"
+}
 
 # Настройка русского языка
 configure_russian_locale() {
