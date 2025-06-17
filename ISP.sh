@@ -151,8 +151,8 @@ get_network() {
 }
 
 # Default values
-INTERFACE_HQ="ens224"
-INTERFACE_BR="ens256"
+INTERFACE_HQ="ens256"
+INTERFACE_BR="ens224"
 INTERFACE_OUT="ens192"
 IP_HQ="172.16.40.1/28"
 IP_BR="172.16.50.1/28"
