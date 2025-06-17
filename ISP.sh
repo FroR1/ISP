@@ -3,7 +3,7 @@
 # ISP Configuration Script
 # This script handles data input and basic configuration tasks.
 # Logs actions to /var/log/isp_config.log.
-
+configure_russian_locale
 # Ensure the script is run as root
 if [ "$(id -u)" -ne 0 ]; then
     echo "Error: This script must be run as root." >&2
@@ -179,17 +179,17 @@ edit_data() {
     while true; do
         clear
         echo "Current Data:"
-        echo "1. HQ interface: ${INTERFACE_HQ:-Not set}"
-        echo "2. BR interface: ${INTERFACE_BR:-Not set}"
-        echo "3. Outgoing interface: ${INTERFACE_OUT:-Not set}"
-        echo "4. IP for HQ: ${IP_HQ:-Not set}"
-        echo "5. IP for BR: ${IP_BR:-Not set}"
+        echo "1. HQ Интерфейс: ${INTERFACE_HQ:-Not set}"
+        echo "2. BR Интерфейс: ${INTERFACE_BR:-Not set}"
+        echo "3. Интерфейс для инета: ${INTERFACE_OUT:-Not set}"
+        echo "4. IP для HQ: ${IP_HQ:-Not set}"
+        echo "5. IP для BR: ${IP_BR:-Not set}"
         echo "6. Hostname: ${HOSTNAME:-Not set}"
-        echo "7. Set time zone"
-        echo "8. Enter all new data"
-        echo "9. Show network map"
+        echo "7. Установить время"
+        echo "8. Ввести новые данные"
+        echo "9. хуйня не доделаная"
         echo "10. Configure Russian locale"
-        echo "0. Back to main menu"
+        echo "0. Выйти"
         read -p "Select an option: " choice
         case $choice in
             1) read -p "Enter HQ interface name: " INTERFACE_HQ ;;
