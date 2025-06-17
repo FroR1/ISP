@@ -154,8 +154,8 @@ get_network() {
 INTERFACE_HQ="ens224"
 INTERFACE_BR="ens256"
 INTERFACE_OUT="ens192"
-IP_HQ="172.16.4.1/28"
-IP_BR="172.16.5.1/28"
+IP_HQ="172.16.40.1/28"
+IP_BR="172.16.50.1/28"
 HOSTNAME="isp"
 TIME_ZONE="Asia/Novosibirsk"
 
