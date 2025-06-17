@@ -210,14 +210,10 @@ edit_data() {
             6) read -p "Введите имя хоста: " HOSTNAME ;;
             7)
                 while true; do
-                    read -p "Введите часовой пояс (например, Asia/Novosibirsk): " TIME_ZONE
-                    if check_timezone "$TIME_ZONE"; then
-                        timedatectl set-timezone "$TIME_ZONE" >> "$LOG_FILE" 2>&1 || { log_message "Ошибка: Не удалось установить часовой пояс $TIME_ZONE."; continue; }
-                        log_message "Часовой пояс установлен на $TIME_ZONE. Проверьте лог для подробностей."
-                        break
-                    else
-                        echo "Неверный часовой пояс. Используйте 'timedatectl list-timezones' для списка."
-                        read -p "Нажмите Enter, чтобы попробовать снова..."
+                        echo "Установка часового пояса..."
+                        apt-get install -y tzdata
+                        timedatectl set-timezone "$TIME_ZONE"
+                        echo "Часовой пояс установлен: $TIME_ZONE"
                     fi
                 done
                 ;;
