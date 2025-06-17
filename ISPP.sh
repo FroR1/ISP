@@ -68,7 +68,7 @@ set_timezone() {
     timedatectl set-timezone "$TIME_ZONE"
     echo "Часовой пояс установлен: $TIME_ZONE"
 }
-
+set_timezone
 # Настройка русского языка
 configure_russian_locale() {
     log_message "Проверка русского языка (ru_RU.UTF-8)..."
@@ -214,7 +214,6 @@ edit_data() {
                         apt-get install -y tzdata
                         timedatectl set-timezone "$TIME_ZONE"
                         echo "Часовой пояс установлен: $TIME_ZONE"
-                    fi
                 done
                 ;;
             8)
